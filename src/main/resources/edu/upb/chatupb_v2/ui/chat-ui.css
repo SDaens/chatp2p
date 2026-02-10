@@ -1,0 +1,144 @@
+.root {
+    -fx-font-family: "IBM Plex Sans", "Noto Sans", "Segoe UI";
+    -fx-background-color: linear-gradient(to bottom right, #0f1d2c, #1a2e3d);
+}
+
+.header {
+    -fx-padding: 22 26 18 26;
+    -fx-background-color: rgba(10, 20, 30, 0.75);
+    -fx-border-color: rgba(255, 255, 255, 0.05);
+    -fx-border-width: 0 0 1 0;
+}
+
+.title {
+    -fx-font-size: 22px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #e9f3ff;
+}
+
+.subtitle {
+    -fx-font-size: 13px;
+    -fx-text-fill: rgba(233, 243, 255, 0.7);
+}
+
+.status-box {
+    -fx-padding: 6 12;
+    -fx-background-color: rgba(255, 255, 255, 0.04);
+    -fx-background-radius: 12;
+}
+
+.meta-key {
+    -fx-font-size: 11px;
+    -fx-text-fill: rgba(233, 243, 255, 0.55);
+}
+
+.meta-value {
+    -fx-font-size: 12px;
+    -fx-text-fill: #d7e8ff;
+}
+
+
+.message-scroll {
+    -fx-background: transparent;
+    -fx-background-color: transparent;
+    -fx-padding: 14 0 0 0;
+}
+
+.message-scroll .viewport {
+    -fx-background-color: transparent;
+}
+
+.messages {
+    -fx-padding: 8 26 30 26;
+}
+
+.message-row {
+    -fx-fill-width: true;
+}
+
+.message-text {
+    -fx-font-size: 13.5px;
+    -fx-text-fill: #eaf4ff;
+}
+
+.message-time {
+    -fx-font-size: 10px;
+    -fx-text-fill: rgba(234, 244, 255, 0.55);
+}
+
+.bubble-peer {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-radius: 16;
+    -fx-padding: 12 14;
+}
+
+.bubble-self {
+    -fx-background-color: linear-gradient(to bottom right, #4ea1ff, #356bff);
+    -fx-background-radius: 16;
+    -fx-padding: 12 14;
+}
+
+.image-stack {
+    -fx-background-radius: 14;
+}
+
+.image-placeholder {
+    -fx-background-color: rgba(255, 255, 255, 0.18);
+    -fx-background-radius: 14;
+    -fx-border-color: rgba(255, 255, 255, 0.25);
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+}
+
+.image-label {
+    -fx-text-fill: rgba(15, 29, 44, 0.7);
+    -fx-font-weight: 600;
+}
+
+.composer {
+    -fx-background-color: rgba(7, 13, 20, 0.7);
+    -fx-border-color: rgba(255, 255, 255, 0.06);
+    -fx-border-width: 1 0 0 0;
+}
+
+.composer-hint {
+    -fx-font-size: 12px;
+    -fx-text-fill: rgba(233, 243, 255, 0.55);
+}
+
+.composer-input {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-radius: 12;
+    -fx-text-fill: #eef6ff;
+    -fx-highlight-fill: rgba(78, 161, 255, 0.5);
+    -fx-highlight-text-fill: #0d1a24;
+}
+
+.composer-input .content {
+    -fx-background-color: transparent;
+    -fx-padding: 10 12;
+}
+
+.primary-button {
+    -fx-background-color: #8cffc3;
+    -fx-text-fill: #0c1a24;
+    -fx-font-weight: 600;
+    -fx-background-radius: 12;
+    -fx-padding: 8 18;
+}
+
+.secondary-button {
+    -fx-background-color: rgba(255, 255, 255, 0.12);
+    -fx-text-fill: #e7f2ff;
+    -fx-background-radius: 12;
+    -fx-padding: 8 14;
+}
+
+.scroll-bar:vertical {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar:vertical .thumb {
+    -fx-background-color: rgba(255, 255, 255, 0.18);
+    -fx-background-radius: 999;
+}
