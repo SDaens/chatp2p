@@ -1,5 +1,5 @@
 .root {
-    -fx-font-family: "IBM Plex Sans", "Noto Sans", "Segoe UI";
+    -fx-font-family: "IBM Plex Sans", "Noto Sans", "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
     -fx-background-color: linear-gradient(to bottom right, #0f1d2c, #1a2e3d);
 }
 
@@ -107,16 +107,56 @@
 }
 
 .composer-input {
-    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-color: rgba(7, 13, 20, 0.7);
     -fx-background-radius: 12;
     -fx-text-fill: #eef6ff;
+    -fx-text-inner-color: #eef6ff;
+    -fx-prompt-text-fill: rgba(233, 243, 255, 0.5);
+    -fx-control-inner-background: rgba(7, 13, 20, 0.7);
     -fx-highlight-fill: rgba(78, 161, 255, 0.5);
     -fx-highlight-text-fill: #0d1a24;
+    -fx-border-color: rgba(255, 255, 255, 0.1);
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
 }
 
-.composer-input .content {
-    -fx-background-color: transparent;
+.text-area.composer-input,
+.text-field.composer-input {
+    -fx-background-insets: 0;
+}
+
+.text-area.composer-input .content {
+    -fx-background-color: rgba(7, 13, 20, 0.7);
+    -fx-background-radius: 12;
     -fx-padding: 10 12;
+}
+
+.text-area.composer-input .viewport {
+    -fx-background-color: rgba(7, 13, 20, 0.7);
+    -fx-background-radius: 12;
+}
+
+.text-area.composer-input .text,
+.text-field.composer-input .text {
+    -fx-fill: #eef6ff;
+}
+
+.system-row {
+    -fx-padding: 4 0;
+}
+
+.bubble-system {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-radius: 12;
+    -fx-padding: 8 12;
+}
+
+.system-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: rgba(233, 243, 255, 0.75);
+    -fx-alignment: center;
 }
 
 .primary-button {

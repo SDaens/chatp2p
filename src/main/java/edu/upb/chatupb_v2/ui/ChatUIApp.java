@@ -359,7 +359,22 @@ public class ChatUIApp extends Application {
     }
 
     private void addSystemMessage(String text) {
-        addChatBubble("[sistema] " + text, false);
+        Platform.runLater(() -> {
+            Label textNode = new Label(text);
+            textNode.getStyleClass().add("system-text");
+            textNode.setWrapText(true);
+
+            VBox bubble = new VBox(textNode);
+            bubble.getStyleClass().add("bubble-system");
+            bubble.setMaxWidth(320);
+
+            HBox row = new HBox(bubble);
+            row.getStyleClass().addAll("message-row", "system-row");
+            row.setAlignment(Pos.CENTER);
+
+            messages.getChildren().add(row);
+            scrollPane.setVvalue(1.0);
+        });
     }
 
     private void closeListener() {
