@@ -8,9 +8,9 @@ import java.util.Objects;
 
 /**
  * Wire-level protocol message for the 001-013 chat actions defined in diagram.puml.
- * Single-class representation with parsing/serialization helpers.
+ * Abstract base + typed concrete messages to support peers that understand the protocol fragments.
  */
-public final class ProtocolMessage {
+public abstract class ProtocolMessage {
 
     public enum Code {
         REQUEST("001", 2, "ID", "Nombre"),
@@ -64,28 +64,19 @@ public final class ProtocolMessage {
         }
     }
 
-    private final Code code;
     private final List<String> params;
 
-    private ProtocolMessage(Code code, List<String> params) {
-        this.code = Objects.requireNonNull(code, "code");
+    protected ProtocolMessage(List<String> params) {
         this.params = Collections.unmodifiableList(new ArrayList<>(params));
     }
 
     public static ProtocolMessage of(Code code, String... params) {
         Objects.requireNonNull(code, "code");
-        int expected = code.paramCount();
-        int actual = params == null ? 0 : params.length;
-        if (expected != actual) {
-            throw new IllegalArgumentException(
-                    String.format(Locale.ROOT, "Code %s expects %d params, got %d",
-                            code.value(), expected, actual));
-        }
         List<String> parts = new ArrayList<>();
         if (params != null) {
             Collections.addAll(parts, params);
         }
-        return new ProtocolMessage(code, parts);
+        return fromParts(code, parts);
     }
 
     public static ProtocolMessage parse(String line) {
@@ -102,17 +93,10 @@ public final class ProtocolMessage {
         for (int i = 1; i < rawTokens.length; i++) {
             parts.add(rawTokens[i].trim());
         }
-        if (parts.size() != code.paramCount()) {
-            throw new IllegalArgumentException(
-                    String.format(Locale.ROOT, "Code %s expects %d params, got %d",
-                            code.value(), code.paramCount(), parts.size()));
-        }
-        return new ProtocolMessage(code, parts);
+        return fromParts(code, parts);
     }
 
-    public Code code() {
-        return code;
-    }
+    public abstract Code code();
 
     public List<String> params() {
         return params;
@@ -123,10 +107,182 @@ public final class ProtocolMessage {
     }
 
     public String serialize() {
-        StringBuilder sb = new StringBuilder(code.value());
+        StringBuilder sb = new StringBuilder(code().value());
         for (String param : params) {
             sb.append(" | ").append(param);
         }
         return sb.toString();
+    }
+
+    private static ProtocolMessage fromParts(Code code, List<String> parts) {
+        validateParamCount(code, parts);
+        return switch (code) {
+            case REQUEST -> new RequestMessage(parts.get(0), parts.get(1));
+            case ACCEPT -> new AcceptMessage(parts.get(0), parts.get(1));
+            case REJECT -> new RejectMessage();
+            case HELLO_BROADCAST -> new HelloBroadcastMessage(parts.get(0));
+            case HELLO_ACCEPT -> new HelloAcceptMessage(parts.get(0));
+            case HELLO_REJECT -> new HelloRejectMessage();
+            case CHAT -> new ChatMessage(parts.get(0), parts.get(1), parts.get(2));
+            case RECEIPT -> new ReceiptMessage(parts.get(0));
+            case DELETE -> new DeleteMessage(parts.get(0));
+            case BUZZ -> new BuzzMessage(parts.get(0));
+            case PIN -> new PinMessage(parts.get(0));
+            case SEEN -> new SeenMessage(parts.get(0), parts.get(1), parts.get(2));
+            case THEME -> new ThemeMessage(parts.get(0), parts.get(1));
+        };
+    }
+
+    private static void validateParamCount(Code code, List<String> parts) {
+        int expected = code.paramCount();
+        int actual = parts == null ? 0 : parts.size();
+        if (expected != actual) {
+            throw new IllegalArgumentException(
+                    String.format(Locale.ROOT, "Code %s expects %d params, got %d",
+                            code.value(), expected, actual));
+        }
+    }
+
+    public static final class RequestMessage extends ProtocolMessage {
+        public RequestMessage(String id, String nombre) {
+            super(List.of(id, nombre));
+        }
+
+        @Override
+        public Code code() {
+            return Code.REQUEST;
+        }
+    }
+
+    public static final class AcceptMessage extends ProtocolMessage {
+        public AcceptMessage(String id, String nombre) {
+            super(List.of(id, nombre));
+        }
+
+        @Override
+        public Code code() {
+            return Code.ACCEPT;
+        }
+    }
+
+    public static final class RejectMessage extends ProtocolMessage {
+        public RejectMessage() {
+            super(List.of());
+        }
+
+        @Override
+        public Code code() {
+            return Code.REJECT;
+        }
+    }
+
+    public static final class HelloBroadcastMessage extends ProtocolMessage {
+        public HelloBroadcastMessage(String id) {
+            super(List.of(id));
+        }
+
+        @Override
+        public Code code() {
+            return Code.HELLO_BROADCAST;
+        }
+    }
+
+    public static final class HelloAcceptMessage extends ProtocolMessage {
+        public HelloAcceptMessage(String id) {
+            super(List.of(id));
+        }
+
+        @Override
+        public Code code() {
+            return Code.HELLO_ACCEPT;
+        }
+    }
+
+    public static final class HelloRejectMessage extends ProtocolMessage {
+        public HelloRejectMessage() {
+            super(List.of());
+        }
+
+        @Override
+        public Code code() {
+            return Code.HELLO_REJECT;
+        }
+    }
+
+    public static final class ChatMessage extends ProtocolMessage {
+        public ChatMessage(String userId, String messageId, String message) {
+            super(List.of(userId, messageId, message));
+        }
+
+        @Override
+        public Code code() {
+            return Code.CHAT;
+        }
+    }
+
+    public static final class ReceiptMessage extends ProtocolMessage {
+        public ReceiptMessage(String messageId) {
+            super(List.of(messageId));
+        }
+
+        @Override
+        public Code code() {
+            return Code.RECEIPT;
+        }
+    }
+
+    public static final class DeleteMessage extends ProtocolMessage {
+        public DeleteMessage(String messageId) {
+            super(List.of(messageId));
+        }
+
+        @Override
+        public Code code() {
+            return Code.DELETE;
+        }
+    }
+
+    public static final class BuzzMessage extends ProtocolMessage {
+        public BuzzMessage(String idVer) {
+            super(List.of(idVer));
+        }
+
+        @Override
+        public Code code() {
+            return Code.BUZZ;
+        }
+    }
+
+    public static final class PinMessage extends ProtocolMessage {
+        public PinMessage(String messageId) {
+            super(List.of(messageId));
+        }
+
+        @Override
+        public Code code() {
+            return Code.PIN;
+        }
+    }
+
+    public static final class SeenMessage extends ProtocolMessage {
+        public SeenMessage(String userId, String runId, String message) {
+            super(List.of(userId, runId, message));
+        }
+
+        @Override
+        public Code code() {
+            return Code.SEEN;
+        }
+    }
+
+    public static final class ThemeMessage extends ProtocolMessage {
+        public ThemeMessage(String userId, String themeId) {
+            super(List.of(userId, themeId));
+        }
+
+        @Override
+        public Code code() {
+            return Code.THEME;
+        }
     }
 }
