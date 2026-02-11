@@ -1,0 +1,46 @@
+@startuml
+title Protocolo Cliente 1 ↔ Cliente 2 (server) 001-013
+
+participant "<u>Cliente 1</u>" as C1
+participant "<u>Cliente 2\n<<server>></u>" as S
+
+note left of C1: Solicitud (001)
+C1 -> S  : 001 | ID | Nombre
+
+note left of C1: Aceptar (002)
+S  -> C1 : 002 | ID | Nombre
+
+note left of C1: Rechazar (003)
+S  -> C1 : 003
+
+note left of C1: Hello Broadcast (004)
+C1 -> S  : 004 | ID
+
+note left of C1: Aceptar Hello (005)
+S  -> C1 : 005 | ID
+
+note left of C1: Rechazar Hello (006)
+S  -> C1 : 006
+
+note left of C1: Chat (007)
+C1 -> S  : 007 | ID_user | ID_mensaje | Mensaje
+
+note left of C1: Confirmar Recibo (008)
+S  -> C1 : 008 | ID_mensaje
+
+note left of C1: Eliminar Mensaje (009)
+C1 -> S  : 009 | ID_mensaje
+
+note left of C1: Zumbido (010)
+C1 -> S  : 010 | ID_ver
+
+note left of C1: Fijar Mensaje (011)
+C1 -> S  : 011 | ID_mensaje
+
+note left of C1: Mensaje visto (012)
+C1 -> S  : 012 | ID_user | ID_run | Mensaje
+
+note left of C1: Cambiar el tema/fondo del chat (013)
+C1 -> S  : 013 | ID_user | ID_tema
+
+@enduml
