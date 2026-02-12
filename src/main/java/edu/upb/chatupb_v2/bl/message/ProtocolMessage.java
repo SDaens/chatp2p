@@ -5,11 +5,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
-/**
- * Wire-level protocol message for the 001-013 chat actions defined in diagram.puml.
- * Abstract base + typed concrete messages to support peers that understand the protocol fragments.
- */
 public abstract class ProtocolMessage {
 
     public enum Code {
@@ -83,17 +80,27 @@ public abstract class ProtocolMessage {
         if (line == null || line.trim().isEmpty()) {
             throw new IllegalArgumentException("Empty protocol line");
         }
-        String[] rawTokens = line.split("\\|");
-        if (rawTokens.length == 0) {
+        String[] split = line.split(Pattern.quote("|"));
+        if (split.length == 0) {
             throw new IllegalArgumentException("Invalid protocol line: " + line);
         }
-        String codeToken = rawTokens[0].trim();
-        Code code = Code.from(codeToken);
-        List<String> parts = new ArrayList<>();
-        for (int i = 1; i < rawTokens.length; i++) {
-            parts.add(rawTokens[i].trim());
-        }
-        return fromParts(code, parts);
+        String code = split[0].trim();
+        return switch (code) {
+            case "001" -> parseRequest(split);
+            case "002" -> parseAccept(split);
+            case "003" -> parseReject(split);
+            case "004" -> parseHelloBroadcast(split);
+            case "005" -> parseHelloAccept(split);
+            case "006" -> parseHelloReject(split);
+            case "007" -> parseChat(split);
+            case "008" -> parseReceipt(split);
+            case "009" -> parseDelete(split);
+            case "010" -> parseBuzz(split);
+            case "011" -> parsePin(split);
+            case "012" -> parseSeen(split);
+            case "013" -> parseTheme(split);
+            default -> throw new IllegalArgumentException("Unknown protocol code: " + code);
+        };
     }
 
     public abstract Code code();
@@ -112,6 +119,10 @@ public abstract class ProtocolMessage {
             sb.append(" | ").append(param);
         }
         return sb.toString();
+    }
+
+    public String generarTrama() {
+        return serialize();
     }
 
     private static ProtocolMessage fromParts(Code code, List<String> parts) {
@@ -141,6 +152,66 @@ public abstract class ProtocolMessage {
                     String.format(Locale.ROOT, "Code %s expects %d params, got %d",
                             code.value(), expected, actual));
         }
+    }
+
+    private static String[] extractParts(String[] split) {
+        String[] parts = new String[Math.max(0, split.length - 1)];
+        for (int i = 1; i < split.length; i++) {
+            parts[i - 1] = split[i].trim();
+        }
+        return parts;
+    }
+
+    private static ProtocolMessage parseRequest(String[] split) {
+        return of(Code.REQUEST, extractParts(split));
+    }
+
+    private static ProtocolMessage parseAccept(String[] split) {
+        return of(Code.ACCEPT, extractParts(split));
+    }
+
+    private static ProtocolMessage parseReject(String[] split) {
+        return of(Code.REJECT, extractParts(split));
+    }
+
+    private static ProtocolMessage parseHelloBroadcast(String[] split) {
+        return of(Code.HELLO_BROADCAST, extractParts(split));
+    }
+
+    private static ProtocolMessage parseHelloAccept(String[] split) {
+        return of(Code.HELLO_ACCEPT, extractParts(split));
+    }
+
+    private static ProtocolMessage parseHelloReject(String[] split) {
+        return of(Code.HELLO_REJECT, extractParts(split));
+    }
+
+    private static ProtocolMessage parseChat(String[] split) {
+        return of(Code.CHAT, extractParts(split));
+    }
+
+    private static ProtocolMessage parseReceipt(String[] split) {
+        return of(Code.RECEIPT, extractParts(split));
+    }
+
+    private static ProtocolMessage parseDelete(String[] split) {
+        return of(Code.DELETE, extractParts(split));
+    }
+
+    private static ProtocolMessage parseBuzz(String[] split) {
+        return of(Code.BUZZ, extractParts(split));
+    }
+
+    private static ProtocolMessage parsePin(String[] split) {
+        return of(Code.PIN, extractParts(split));
+    }
+
+    private static ProtocolMessage parseSeen(String[] split) {
+        return of(Code.SEEN, extractParts(split));
+    }
+
+    private static ProtocolMessage parseTheme(String[] split) {
+        return of(Code.THEME, extractParts(split));
     }
 
     public static final class RequestMessage extends ProtocolMessage {

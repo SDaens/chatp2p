@@ -16,7 +16,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.Modality;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -31,6 +33,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Objects;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -56,10 +60,11 @@ public class ChatUIApp extends Application {
     private Label localIpValue;
     private Label remoteIpValue;
     private Label statusValue;
-    private TextField remoteIpInput;
     private VBox messages;
     private ScrollPane scrollPane;
     private TextArea input;
+    private VBox contactsBox;
+    private final Map<String, Button> contactButtons = new LinkedHashMap<>();
 
     @Override
     public void start(Stage stage) {
@@ -69,6 +74,7 @@ public class ChatUIApp extends Application {
         root.getStyleClass().add("root");
 
         root.setTop(buildHeader());
+        root.setLeft(buildContactsSidebar(stage));
         root.setCenter(buildConversation());
         root.setBottom(buildComposer());
 
@@ -84,7 +90,7 @@ public class ChatUIApp extends Application {
         stage.show();
 
         startListener();
-        addSystemMessage("Escuchando en puerto " + PORT + ". Conecta una IP remota para chatear.");
+        addSystemMessage("Escuchando en puerto " + PORT + ". Agrega contactos para conectar.");
     }
 
     @Override
@@ -118,22 +124,10 @@ public class ChatUIApp extends Application {
         );
         statusBox.getStyleClass().add("status-box");
 
-        remoteIpInput = new TextField("127.0.0.1");
-        remoteIpInput.setPromptText("IP remota");
-        remoteIpInput.getStyleClass().add("composer-input");
-        remoteIpInput.setPrefWidth(160);
-
-        Button connect = new Button("Conectar");
-        connect.getStyleClass().add("secondary-button");
-        connect.setOnAction(e -> connectToRemote(remoteIpInput.getText()));
-
-        HBox connectBox = new HBox(8, remoteIpInput, connect);
-        connectBox.setAlignment(Pos.CENTER_RIGHT);
-
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox header = new HBox(16, titleBox, spacer, statusBox, connectBox);
+        HBox header = new HBox(16, titleBox, spacer, statusBox);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         return new VBox(header);
@@ -157,6 +151,30 @@ public class ChatUIApp extends Application {
         scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         scrollPane.setVvalue(1.0);
         return scrollPane;
+    }
+
+    private VBox buildContactsSidebar(Stage owner) {
+        Label title = new Label("Contactos");
+        title.getStyleClass().add("contacts-title");
+
+        Button add = new Button("Agregar");
+        add.getStyleClass().add("secondary-button");
+        add.setMaxWidth(Double.MAX_VALUE);
+        add.setOnAction(e -> showAddContactPopup(owner));
+
+        contactsBox = new VBox(8);
+        contactsBox.getStyleClass().add("contacts-list");
+
+        ScrollPane contactsScroll = new ScrollPane(contactsBox);
+        contactsScroll.setFitToWidth(true);
+        contactsScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        contactsScroll.getStyleClass().add("contacts-scroll");
+
+        VBox sidebar = new VBox(12, title, add, contactsScroll);
+        sidebar.getStyleClass().add("contacts-sidebar");
+        sidebar.setPadding(new Insets(18));
+        sidebar.setPrefWidth(250);
+        return sidebar;
     }
 
     private VBox buildComposer() {
@@ -213,6 +231,7 @@ public class ChatUIApp extends Application {
             addSystemMessage("Ingresa una IP remota válida.");
             return;
         }
+        addOrSelectContact(ip);
 
         Thread connector = new Thread(() -> {
             try {
@@ -239,6 +258,7 @@ public class ChatUIApp extends Application {
         }
 
         String remoteIp = socket.getInetAddress().getHostAddress();
+        addOrSelectContact(remoteIp);
         setConnectionState(remoteIp, contextMessage);
         sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
         sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_BROADCAST, localUserId));
@@ -265,6 +285,7 @@ public class ChatUIApp extends Application {
                     Platform.runLater(() -> {
                         remoteIpValue.setText("-");
                         statusValue.setText("Sin conexión");
+                        markActiveContact(null);
                     });
                 }
             }
@@ -332,8 +353,78 @@ public class ChatUIApp extends Application {
         Platform.runLater(() -> {
             remoteIpValue.setText(remoteIp);
             statusValue.setText("Conectado");
+            markActiveContact(remoteIp);
             addSystemMessage(message);
         });
+    }
+
+    private void showAddContactPopup(Window owner) {
+        Stage popup = new Stage();
+        popup.initOwner(owner);
+        popup.initModality(Modality.WINDOW_MODAL);
+        popup.setTitle("Agregar contacto");
+        popup.setResizable(false);
+
+        Label label = new Label("IP del contacto");
+        label.getStyleClass().add("composer-hint");
+
+        TextField ipInput = new TextField();
+        ipInput.setPromptText("192.168.0.10");
+        ipInput.getStyleClass().add("composer-input");
+        ipInput.setPrefWidth(260);
+
+        Button connect = new Button("Conectar");
+        connect.getStyleClass().add("primary-button");
+        connect.setOnAction(e -> {
+            String ip = ipInput.getText() == null ? "" : ipInput.getText().trim();
+            if (ip.isEmpty()) {
+                addSystemMessage("Debes ingresar una IP para agregar un contacto.");
+                return;
+            }
+            addOrSelectContact(ip);
+            connectToRemote(ip);
+            popup.close();
+        });
+
+        VBox popupRoot = new VBox(12, label, ipInput, connect);
+        popupRoot.setPadding(new Insets(18));
+        popupRoot.setAlignment(Pos.CENTER_LEFT);
+        popupRoot.getStyleClass().add("root");
+
+        Scene scene = new Scene(popupRoot, 320, 160);
+        scene.getStylesheets().add(Objects.requireNonNull(
+                getClass().getResource("/edu/upb/chatupb_v2/ui/chat-ui.css")
+        ).toExternalForm());
+        popup.setScene(scene);
+        popup.show();
+    }
+
+    private void addOrSelectContact(String ip) {
+        Platform.runLater(() -> {
+            String cleanIp = ip == null ? "" : ip.trim();
+            if (cleanIp.isEmpty()) {
+                return;
+            }
+            Button existing = contactButtons.get(cleanIp);
+            if (existing != null) {
+                return;
+            }
+            Button contactBtn = new Button(cleanIp);
+            contactBtn.getStyleClass().add("contact-item");
+            contactBtn.setMaxWidth(Double.MAX_VALUE);
+            contactBtn.setOnAction(e -> connectToRemote(cleanIp));
+            contactsBox.getChildren().add(contactBtn);
+            contactButtons.put(cleanIp, contactBtn);
+        });
+    }
+
+    private void markActiveContact(String ip) {
+        for (Map.Entry<String, Button> entry : contactButtons.entrySet()) {
+            entry.getValue().getStyleClass().remove("contact-item-active");
+            if (ip != null && ip.equals(entry.getKey())) {
+                entry.getValue().getStyleClass().add("contact-item-active");
+            }
+        }
     }
 
     private void addChatBubble(String text, boolean self) {

@@ -37,6 +37,45 @@
     -fx-text-fill: #d7e8ff;
 }
 
+.contacts-sidebar {
+    -fx-background-color: rgba(10, 20, 30, 0.55);
+    -fx-border-color: rgba(255, 255, 255, 0.05);
+    -fx-border-width: 0 0 0 1;
+}
+
+.contacts-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #e9f3ff;
+}
+
+.contacts-scroll {
+    -fx-background-color: transparent;
+    -fx-background: transparent;
+}
+
+.contacts-scroll .viewport {
+    -fx-background-color: transparent;
+}
+
+.contacts-list {
+    -fx-padding: 4 0 4 0;
+}
+
+.contact-item {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-text-fill: #e7f2ff;
+    -fx-alignment: center-left;
+    -fx-background-radius: 10;
+    -fx-padding: 10 12;
+    -fx-max-width: Infinity;
+}
+
+.contact-item-active {
+    -fx-background-color: linear-gradient(to bottom right, #4ea1ff, #356bff);
+    -fx-text-fill: #f5fbff;
+}
+
 
 .message-scroll {
     -fx-background: transparent;
