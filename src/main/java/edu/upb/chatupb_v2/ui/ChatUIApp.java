@@ -36,6 +36,7 @@ import java.util.Objects;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ChatUIApp extends Application {
@@ -64,11 +65,14 @@ public class ChatUIApp extends Application {
     private ScrollPane scrollPane;
     private TextArea input;
     private VBox contactsBox;
+    private Stage primaryStage;
+    private volatile boolean incomingRequestDialogOpen;
     private final Map<String, Button> contactButtons = new LinkedHashMap<>();
 
     @Override
     public void start(Stage stage) {
         running = true;
+        primaryStage = stage;
 
         BorderPane root = new BorderPane();
         root.getStyleClass().add("root");
@@ -298,7 +302,7 @@ public class ChatUIApp extends Application {
             switch (msg.code()) {
                 case REQUEST -> {
                     addSystemMessage("Solicitud recibida de " + msg.param(1));
-                    sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, localName));
+                    Platform.runLater(() -> showMessageRequestPopup(msg.param(1)));
                 }
                 case ACCEPT -> addSystemMessage("Conectado con " + msg.param(1));
                 case REJECT -> addSystemMessage("La contraparte rechazó la solicitud.");
@@ -392,6 +396,77 @@ public class ChatUIApp extends Application {
         popupRoot.getStyleClass().add("root");
 
         Scene scene = new Scene(popupRoot, 320, 160);
+        scene.getStylesheets().add(Objects.requireNonNull(
+                getClass().getResource("/edu/upb/chatupb_v2/ui/chat-ui.css")
+        ).toExternalForm());
+        popup.setScene(scene);
+        popup.show();
+    }
+
+    private void showMessageRequestPopup(String requesterName) {
+        if (primaryStage == null) {
+            return;
+        }
+        if (incomingRequestDialogOpen) {
+            addSystemMessage("Ya tienes una solicitud pendiente. La nueva solicitud fue rechazada.");
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REJECT, localUserId));
+            return;
+        }
+        incomingRequestDialogOpen = true;
+
+        Stage popup = new Stage();
+        popup.initOwner(primaryStage);
+        popup.initModality(Modality.WINDOW_MODAL);
+        popup.setTitle("Solicitud de mensaje");
+        popup.setResizable(false);
+
+        Label title = new Label("Solicitud de mensaje");
+        title.getStyleClass().add("contacts-title");
+
+        Label description = new Label(requesterName + " quiere iniciar una conversación.");
+        description.getStyleClass().add("composer-hint");
+        description.setWrapText(true);
+
+        AtomicBoolean handled = new AtomicBoolean(false);
+
+        Runnable rejectRequest = () -> {
+            if (handled.compareAndSet(false, true)) {
+                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REJECT, localUserId));
+                addSystemMessage("Rechazaste la solicitud de " + requesterName + ".");
+            }
+        };
+
+        Button reject = new Button("Rechazar");
+        reject.getStyleClass().add("secondary-button");
+        reject.setOnAction(e -> {
+            rejectRequest.run();
+            popup.close();
+        });
+
+        Button accept = new Button("Aceptar");
+        accept.getStyleClass().add("primary-button");
+        accept.setOnAction(e -> {
+            if (handled.compareAndSet(false, true)) {
+                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, localName));
+                addSystemMessage("Aceptaste la solicitud de " + requesterName + ".");
+            }
+            popup.close();
+        });
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox actions = new HBox(10, reject, spacer, accept);
+        actions.setAlignment(Pos.CENTER_LEFT);
+
+        VBox popupRoot = new VBox(12, title, description, actions);
+        popupRoot.setPadding(new Insets(18));
+        popupRoot.setAlignment(Pos.CENTER_LEFT);
+        popupRoot.getStyleClass().add("root");
+
+        popup.setOnCloseRequest(e -> rejectRequest.run());
+        popup.setOnHidden(e -> incomingRequestDialogOpen = false);
+
+        Scene scene = new Scene(popupRoot, 360, 170);
         scene.getStylesheets().add(Objects.requireNonNull(
                 getClass().getResource("/edu/upb/chatupb_v2/ui/chat-ui.css")
         ).toExternalForm());
