@@ -1,6 +1,9 @@
 package edu.upb.chatupb_v2.ui;
 
 import edu.upb.chatupb_v2.bl.message.ProtocolMessage;
+import edu.upb.chatupb_v2.bl.server.ChatTransport;
+import edu.upb.chatupb_v2.bl.server.ChatTransportListener;
+import edu.upb.chatupb_v2.bl.server.SocketChatTransport;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -20,21 +23,13 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Objects;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,17 +41,8 @@ public class ChatUIApp extends Application {
     private final String localUserId = UUID.randomUUID().toString();
     private final String localName = "ChatUPB-" + localUserId.substring(0, 8);
     private final AtomicLong messageSeq = new AtomicLong(1);
-    private final Object connectionLock = new Object();
     private final DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm");
-
-    private volatile boolean running;
-    private volatile ServerSocket listenerSocket;
-    private volatile Thread listenerThread;
-
-    private volatile Socket peerSocket;
-    private volatile BufferedReader peerReader;
-    private volatile BufferedWriter peerWriter;
-    private volatile Thread peerReaderThread;
+    private final ChatTransport transport = new SocketChatTransport(PORT);
 
     private Label localIpValue;
     private Label remoteIpValue;
@@ -71,7 +57,6 @@ public class ChatUIApp extends Application {
 
     @Override
     public void start(Stage stage) {
-        running = true;
         primaryStage = stage;
 
         BorderPane root = new BorderPane();
@@ -93,17 +78,46 @@ public class ChatUIApp extends Application {
         stage.setScene(scene);
         stage.show();
 
-        startListener();
+        configureTransport();
+        transport.start();
         addSystemMessage("Escuchando en puerto " + PORT + ". Agrega contactos para conectar.");
     }
 
     @Override
     public void stop() {
-        running = false;
-        closeListener();
-        synchronized (connectionLock) {
-            closePeerLocked();
-        }
+        transport.stop();
+    }
+
+    private void configureTransport() {
+        transport.setListener(new ChatTransportListener() {
+            @Override
+            public void onConnected(String remoteIp, String contextMessage) {
+                addOrSelectContact(remoteIp);
+                setConnectionState(remoteIp, contextMessage);
+                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
+                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_BROADCAST, localUserId));
+            }
+
+            @Override
+            public void onDisconnected(String remoteIp, String reason) {
+                Platform.runLater(() -> {
+                    remoteIpValue.setText("-");
+                    statusValue.setText("Sin conexión");
+                    markActiveContact(null);
+                });
+                addSystemMessage(reason);
+            }
+
+            @Override
+            public void onMessageReceived(String line) {
+                handleProtocolLine(line);
+            }
+
+            @Override
+            public void onError(String message, Exception exception) {
+                addSystemMessage(message);
+            }
+        });
     }
 
     private VBox buildHeader() {
@@ -211,24 +225,6 @@ public class ChatUIApp extends Application {
         return composer;
     }
 
-    private void startListener() {
-        listenerThread = new Thread(() -> {
-            try (ServerSocket ss = new ServerSocket(PORT)) {
-                listenerSocket = ss;
-                while (running) {
-                    Socket accepted = ss.accept();
-                    attachPeerSocket(accepted, "Conexión entrante");
-                }
-            } catch (IOException ex) {
-                if (running) {
-                    addSystemMessage("No se pudo abrir listener en puerto " + PORT + ": " + ex.getMessage());
-                }
-            }
-        }, "ui-listener");
-        listenerThread.setDaemon(true);
-        listenerThread.start();
-    }
-
     private void connectToRemote(String rawIp) {
         String ip = rawIp == null ? "" : rawIp.trim();
         if (ip.isEmpty()) {
@@ -236,64 +232,7 @@ public class ChatUIApp extends Application {
             return;
         }
         addOrSelectContact(ip);
-
-        Thread connector = new Thread(() -> {
-            try {
-                Socket socket = new Socket();
-                socket.connect(new InetSocketAddress(ip, PORT), 2500);
-                attachPeerSocket(socket, "Conectado a " + ip);
-            } catch (IOException ex) {
-                addSystemMessage("No se pudo conectar a " + ip + ":" + PORT + " - " + ex.getMessage());
-            }
-        }, "ui-connector");
-        connector.setDaemon(true);
-        connector.start();
-    }
-
-    private void attachPeerSocket(Socket socket, String contextMessage) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-        BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
-
-        synchronized (connectionLock) {
-            closePeerLocked();
-            peerSocket = socket;
-            peerReader = reader;
-            peerWriter = writer;
-        }
-
-        String remoteIp = socket.getInetAddress().getHostAddress();
-        addOrSelectContact(remoteIp);
-        setConnectionState(remoteIp, contextMessage);
-        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
-        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_BROADCAST, localUserId));
-
-        peerReaderThread = new Thread(() -> listenPeer(socket, reader), "ui-peer-reader");
-        peerReaderThread.setDaemon(true);
-        peerReaderThread.start();
-    }
-
-    private void listenPeer(Socket socket, BufferedReader reader) {
-        try {
-            String line;
-            while (running && (line = reader.readLine()) != null) {
-                handleProtocolLine(line);
-            }
-        } catch (IOException ex) {
-            if (running) {
-                addSystemMessage("Conexión cerrada: " + ex.getMessage());
-            }
-        } finally {
-            synchronized (connectionLock) {
-                if (socket == peerSocket) {
-                    closePeerLocked();
-                    Platform.runLater(() -> {
-                        remoteIpValue.setText("-");
-                        statusValue.setText("Sin conexión");
-                        markActiveContact(null);
-                    });
-                }
-            }
-        }
+        transport.connect(ip);
     }
 
     private void handleProtocolLine(String line) {
@@ -338,18 +277,14 @@ public class ChatUIApp extends Application {
     }
 
     private void sendProtocol(ProtocolMessage message) {
-        synchronized (connectionLock) {
-            if (peerWriter == null) {
-                addSystemMessage("Sin conexión activa. Usa Conectar o espera conexión entrante.");
-                return;
-            }
-            try {
-                peerWriter.write(message.serialize());
-                peerWriter.write(System.lineSeparator());
-                peerWriter.flush();
-            } catch (IOException ex) {
-                addSystemMessage("Error enviando protocolo " + message.code().value() + ": " + ex.getMessage());
-            }
+        if (!transport.isConnected()) {
+            addSystemMessage("Sin conexión activa. Usa Conectar o espera conexión entrante.");
+            return;
+        }
+        try {
+            transport.send(message);
+        } catch (IOException ex) {
+            addSystemMessage("Error enviando protocolo " + message.code().value() + ": " + ex.getMessage());
         }
     }
 
@@ -541,42 +476,6 @@ public class ChatUIApp extends Application {
             messages.getChildren().add(row);
             scrollPane.setVvalue(1.0);
         });
-    }
-
-    private void closeListener() {
-        ServerSocket ss = listenerSocket;
-        listenerSocket = null;
-        if (ss != null && !ss.isClosed()) {
-            try {
-                ss.close();
-            } catch (IOException ignored) {
-            }
-        }
-    }
-
-    private void closePeerLocked() {
-        try {
-            if (peerReader != null) {
-                peerReader.close();
-            }
-        } catch (IOException ignored) {
-        }
-        try {
-            if (peerWriter != null) {
-                peerWriter.close();
-            }
-        } catch (IOException ignored) {
-        }
-        try {
-            if (peerSocket != null) {
-                peerSocket.close();
-            }
-        } catch (IOException ignored) {
-        }
-
-        peerReader = null;
-        peerWriter = null;
-        peerSocket = null;
     }
 
     private String resolveLocalIp() {
