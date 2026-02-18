@@ -101,7 +101,6 @@ public class ChatUIApp extends Application {
                 if (contextMessage != null && contextMessage.startsWith("Conectado a ")) {
                     sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
                 }
-                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_BROADCAST, localUserId));
             }
 
             @Override

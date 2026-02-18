@@ -116,7 +116,7 @@ public abstract class ProtocolMessage {
     public String serialize() {
         StringBuilder sb = new StringBuilder(code().value());
         for (String param : params) {
-            sb.append(" | ").append(param);
+            sb.append("|").append(param);
         }
         return sb.toString();
     }
