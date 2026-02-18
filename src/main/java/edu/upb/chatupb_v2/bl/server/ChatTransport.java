@@ -13,6 +13,8 @@ public interface ChatTransport {
 
     void connect(String ip);
 
+    void disconnect();
+
     void send(ProtocolMessage message) throws IOException;
 
     boolean isConnected();

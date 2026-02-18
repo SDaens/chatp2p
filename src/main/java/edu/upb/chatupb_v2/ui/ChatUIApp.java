@@ -3,7 +3,9 @@ package edu.upb.chatupb_v2.ui;
 import edu.upb.chatupb_v2.bl.message.ProtocolMessage;
 import edu.upb.chatupb_v2.bl.server.ChatTransport;
 import edu.upb.chatupb_v2.bl.server.ChatTransportListener;
+import edu.upb.chatupb_v2.bl.server.Mediador;
 import edu.upb.chatupb_v2.bl.server.SocketChatTransport;
+import edu.upb.chatupb_v2.bl.server.SocketClient;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -39,7 +41,7 @@ public class ChatUIApp extends Application {
     private static final int PORT = 1900;
 
     private final String localUserId = UUID.randomUUID().toString();
-    private final String localName = "ChatUPB-" + localUserId.substring(0, 8);
+    private final String localName = "Sebastian";
     private final AtomicLong messageSeq = new AtomicLong(1);
     private final DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm");
     private final ChatTransport transport = new SocketChatTransport(PORT);
@@ -53,6 +55,7 @@ public class ChatUIApp extends Application {
     private VBox contactsBox;
     private Stage primaryStage;
     private volatile boolean incomingRequestDialogOpen;
+    private volatile boolean invitationAccepted;
     private final Map<String, Button> contactButtons = new LinkedHashMap<>();
 
     @Override
@@ -93,13 +96,17 @@ public class ChatUIApp extends Application {
             @Override
             public void onConnected(String remoteIp, String contextMessage) {
                 addOrSelectContact(remoteIp);
-                setConnectionState(remoteIp, contextMessage);
-                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
+                setPendingState(remoteIp, contextMessage);
+                invitationAccepted = false;
+                if (contextMessage != null && contextMessage.startsWith("Conectado a ")) {
+                    sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
+                }
                 sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_BROADCAST, localUserId));
             }
 
             @Override
             public void onDisconnected(String remoteIp, String reason) {
+                invitationAccepted = false;
                 Platform.runLater(() -> {
                     remoteIpValue.setText("-");
                     statusValue.setText("Sin conexión");
@@ -241,10 +248,17 @@ public class ChatUIApp extends Application {
             switch (msg.code()) {
                 case REQUEST -> {
                     addSystemMessage("Solicitud recibida de " + msg.param(1));
-                    Platform.runLater(() -> showMessageRequestPopup(msg.param(1)));
+                    Platform.runLater(() -> showMessageRequestPopup(msg.param(0), msg.param(1)));
                 }
-                case ACCEPT -> addSystemMessage("Conectado con " + msg.param(1));
-                case REJECT -> addSystemMessage("La contraparte rechazó la solicitud.");
+                case ACCEPT -> {
+                    invitationAccepted = true;
+                    Platform.runLater(() -> statusValue.setText("Conectado"));
+                    addSystemMessage("Conectado con " + msg.param(1));
+                }
+                case REJECT -> {
+                    addSystemMessage("La contraparte rechazó la solicitud.");
+                    transport.disconnect();
+                }
                 case HELLO_BROADCAST -> sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_ACCEPT, localUserId));
                 case HELLO_ACCEPT -> addSystemMessage("Handshake de hello confirmado.");
                 case HELLO_REJECT -> addSystemMessage("Hello rechazado por contraparte.");
@@ -269,6 +283,10 @@ public class ChatUIApp extends Application {
         if (text.isEmpty()) {
             return;
         }
+        if (!invitationAccepted) {
+            addSystemMessage("La conversación sigue pendiente. Espera a que acepten la invitación.");
+            return;
+        }
 
         String messageId = localUserId + "-" + messageSeq.getAndIncrement();
         sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.CHAT, localUserId, messageId, text));
@@ -288,10 +306,10 @@ public class ChatUIApp extends Application {
         }
     }
 
-    private void setConnectionState(String remoteIp, String message) {
+    private void setPendingState(String remoteIp, String message) {
         Platform.runLater(() -> {
             remoteIpValue.setText(remoteIp);
-            statusValue.setText("Conectado");
+            statusValue.setText("Pendiente");
             markActiveContact(remoteIp);
             addSystemMessage(message);
         });
@@ -338,13 +356,13 @@ public class ChatUIApp extends Application {
         popup.show();
     }
 
-    private void showMessageRequestPopup(String requesterName) {
+    private void showMessageRequestPopup(String requesterId, String requesterName) {
         if (primaryStage == null) {
             return;
         }
         if (incomingRequestDialogOpen) {
             addSystemMessage("Ya tienes una solicitud pendiente. La nueva solicitud fue rechazada.");
-            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REJECT, localUserId));
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REJECT));
             return;
         }
         incomingRequestDialogOpen = true;
@@ -366,7 +384,7 @@ public class ChatUIApp extends Application {
 
         Runnable rejectRequest = () -> {
             if (handled.compareAndSet(false, true)) {
-                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REJECT, localUserId));
+                responderInvitacion(requesterId, requesterName, false);
                 addSystemMessage("Rechazaste la solicitud de " + requesterName + ".");
             }
         };
@@ -382,7 +400,7 @@ public class ChatUIApp extends Application {
         accept.getStyleClass().add("primary-button");
         accept.setOnAction(e -> {
             if (handled.compareAndSet(false, true)) {
-                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, localName));
+                responderInvitacion(requesterId, requesterName, true);
                 addSystemMessage("Aceptaste la solicitud de " + requesterName + ".");
             }
             popup.close();
@@ -407,6 +425,28 @@ public class ChatUIApp extends Application {
         ).toExternalForm());
         popup.setScene(scene);
         popup.show();
+    }
+
+    private void responderInvitacion(String requesterId, String requesterName, boolean aceptar) {
+        String remoteIp = remoteIpValue.getText();
+        SocketClient socketClient = Mediador.getInstance().obtenerCliente(remoteIp);
+        if (socketClient == null) {
+            sendProtocol(aceptar
+                    ? ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, localName)
+                    : ProtocolMessage.of(ProtocolMessage.Code.REJECT));
+            return;
+        }
+        ProtocolMessage requestMessage = ProtocolMessage.of(ProtocolMessage.Code.REQUEST, requesterId, requesterName);
+        ProtocolMessage respuesta = Mediador.getInstance().onMessage(
+                socketClient, requestMessage, aceptar, localUserId, localName);
+        if (respuesta == null) {
+            return;
+        }
+        try {
+            socketClient.send(respuesta);
+        } catch (IOException ex) {
+            addSystemMessage("No se pudo responder invitación: " + ex.getMessage());
+        }
     }
 
     private void addOrSelectContact(String ip) {

@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 public class SocketChatTransport implements ChatTransport {
 
     private final int port;
+    private final Mediador mediador = Mediador.getInstance();
     private final Object connectionLock = new Object();
 
     private volatile ChatTransportListener listener = new ChatTransportListener() {
@@ -92,6 +93,13 @@ public class SocketChatTransport implements ChatTransport {
     }
 
     @Override
+    public void disconnect() {
+        synchronized (connectionLock) {
+            closePeerLocked();
+        }
+    }
+
+    @Override
     public void send(ProtocolMessage message) throws IOException {
         if (message == null) {
             return;
@@ -126,6 +134,7 @@ public class SocketChatTransport implements ChatTransport {
         }
 
         String remoteIp = socket.getInetAddress().getHostAddress();
+        mediador.registrarCliente(remoteIp, new SocketClient(socket));
         listener.onConnected(remoteIp, contextMessage);
 
         peerReaderThread = new Thread(() -> listenPeer(socket, reader), "transport-peer-reader");
@@ -166,6 +175,8 @@ public class SocketChatTransport implements ChatTransport {
     }
 
     private void closePeerLocked() {
+        String remoteIp = peerSocket != null ? peerSocket.getInetAddress().getHostAddress() : null;
+
         try {
             if (peerReader != null) {
                 peerReader.close();
@@ -188,5 +199,9 @@ public class SocketChatTransport implements ChatTransport {
         peerReader = null;
         peerOutput = null;
         peerSocket = null;
+
+        if (remoteIp != null && !remoteIp.isBlank()) {
+            mediador.eliminarCliente(remoteIp);
+        }
     }
 }
