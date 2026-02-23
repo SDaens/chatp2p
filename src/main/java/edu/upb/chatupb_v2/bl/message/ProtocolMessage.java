@@ -22,7 +22,8 @@ public abstract class ProtocolMessage {
         BUZZ("010", 1, "ID_ver"),
         PIN("011", 1, "ID_mensaje"),
         SEEN("012", 3, "ID_user", "ID_run", "Mensaje"),
-        THEME("013", 2, "ID_user", "ID_tema");
+        THEME("013", 2, "ID_user", "ID_tema"),
+        OUTLINE("0018", 1, "ID_user");
 
         private final String value;
         private final int paramCount;
@@ -99,6 +100,7 @@ public abstract class ProtocolMessage {
             case "011" -> parsePin(split);
             case "012" -> parseSeen(split);
             case "013" -> parseTheme(split);
+            case "0018" -> parseTheme(split);
             default -> throw new IllegalArgumentException("Unknown protocol code: " + code);
         };
     }
@@ -141,6 +143,7 @@ public abstract class ProtocolMessage {
             case PIN -> new PinMessage(parts.get(0));
             case SEEN -> new SeenMessage(parts.get(0), parts.get(1), parts.get(2));
             case THEME -> new ThemeMessage(parts.get(0), parts.get(1));
+            case OUTLINE -> new RejectMessage();
         };
     }
 
@@ -355,5 +358,9 @@ public abstract class ProtocolMessage {
         public Code code() {
             return Code.THEME;
         }
+    }
+
+    private static ProtocolMessage OutLine (String[] split) {
+        return of(Code.OUTLINE, extractParts(split));
     }
 }

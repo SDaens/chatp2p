@@ -9,7 +9,7 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class ChatSessionController implements ChatTransportListener {
+public class ChatSessionController extends ChatTransportListener {
 
     private final ChatTransport transport;
     private final String localUserId = UUID.randomUUID().toString();
@@ -122,6 +122,7 @@ public class ChatSessionController implements ChatTransportListener {
                 case PIN -> publishSystemMessage("Solicitud fijar mensaje: " + msg.param(0));
                 case SEEN -> publishSystemMessage("Visto por " + msg.param(0) + ": " + msg.param(2));
                 case THEME -> publishSystemMessage("Cambio de tema recibido: " + msg.param(1));
+                case OUTLINE -> publishSystemMessage("Estoy offline. " + msg.param(0));
             }
         } catch (IllegalArgumentException ex) {
             publishSystemMessage("Fragmento no reconocido: " + line);

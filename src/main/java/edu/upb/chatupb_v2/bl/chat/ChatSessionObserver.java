@@ -1,18 +1,19 @@
 package edu.upb.chatupb_v2.bl.chat;
 
-public interface ChatSessionObserver {
-    default void onContactDiscovered(String ip) {
+public abstract class ChatSessionObserver {
+    public void onContactDiscovered(String ip) {
     }
 
-    default void onConnectionStateChanged(String remoteIp, boolean connected, String detail) {
+    public void onConnectionStateChanged(String remoteIp, boolean connected, String detail) {
     }
 
-    default void onChatMessage(String text, boolean self) {
+    public void onChatMessage(String text, boolean self) {
     }
 
-    default void onSystemMessage(String text) {
+    public void onSystemMessage(String text) {
     }
 
-    default void onIncomingRequestWithoutObservers(ConnectionRequest request) {
+    public void onIncomingRequestWithoutObservers(ConnectionRequest request) {
+
     }
 }

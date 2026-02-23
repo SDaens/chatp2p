@@ -54,7 +54,7 @@ public class SocketChatTransport implements ChatTransport {
                 }
             } catch (IOException ex) {
                 if (running) {
-                    listener.onError("No se pudo abrir listener en puerto " + port + ": " + ex.getMessage(), ex);
+                    mediador.publishError("No se pudo abrir listener en puerto " + port + ": " + ex.getMessage(), ex);
                 }
             }
         }, "transport-listener");
@@ -75,7 +75,7 @@ public class SocketChatTransport implements ChatTransport {
     public void connect(String ip) {
         String cleanIp = ip == null ? "" : ip.trim();
         if (cleanIp.isEmpty()) {
-            listener.onError("Ingresa una IP remota válida.", null);
+            mediador.publishError("Ingresa una IP remota válida.", null);
             return;
         }
 
@@ -85,7 +85,7 @@ public class SocketChatTransport implements ChatTransport {
                 socket.connect(new InetSocketAddress(cleanIp, port), 2500);
                 attachPeerSocket(socket, "Conectado a " + cleanIp);
             } catch (IOException ex) {
-                listener.onError("No se pudo conectar a " + cleanIp + ":" + port + " - " + ex.getMessage(), ex);
+                mediador.publishError("No se pudo conectar a " + cleanIp + ":" + port + " - " + ex.getMessage(), ex);
             }
         }, "transport-connector");
         connector.setDaemon(true);
@@ -135,7 +135,7 @@ public class SocketChatTransport implements ChatTransport {
 
         String remoteIp = socket.getInetAddress().getHostAddress();
         mediador.registrarCliente(remoteIp, new SocketClient(socket));
-        listener.onConnected(remoteIp, contextMessage);
+        mediador.publishConnected(remoteIp, contextMessage);
 
         peerReaderThread = new Thread(() -> listenPeer(socket, reader), "transport-peer-reader");
         peerReaderThread.setDaemon(true);
@@ -147,17 +147,17 @@ public class SocketChatTransport implements ChatTransport {
         try {
             String line;
             while (running && (line = reader.readLine()) != null) {
-                listener.onMessageReceived(line);
+                mediador.publishIncomingMessage(remoteIp, line);
             }
         } catch (IOException ex) {
             if (running) {
-                listener.onError("Conexión cerrada: " + ex.getMessage(), ex);
+                mediador.publishError("Conexión cerrada: " + ex.getMessage(), ex);
             }
         } finally {
             synchronized (connectionLock) {
                 if (socket == peerSocket) {
                     closePeerLocked();
-                    listener.onDisconnected(remoteIp, "Conexión finalizada");
+                    mediador.publishDisconnected(remoteIp, "Conexión finalizada");
                 }
             }
         }

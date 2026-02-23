@@ -2,10 +2,11 @@ package edu.upb.chatupb_v2.ui;
 
 import edu.upb.chatupb_v2.bl.message.ProtocolMessage;
 import edu.upb.chatupb_v2.bl.server.ChatTransport;
-import edu.upb.chatupb_v2.bl.server.ChatTransportListener;
 import edu.upb.chatupb_v2.bl.server.Mediador;
 import edu.upb.chatupb_v2.bl.server.SocketChatTransport;
-import edu.upb.chatupb_v2.bl.server.SocketClient;
+import edu.upb.chatupb_v2.repository.BlacklistDao;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -24,9 +25,11 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import javafx.util.Duration;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.sql.SQLException;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
@@ -41,10 +44,12 @@ public class ChatUIApp extends Application {
     private static final int PORT = 1900;
 
     private final String localUserId = UUID.randomUUID().toString();
-    private final String localName = "Sebastian";
+    private final String localName = "santiago d.";
     private final AtomicLong messageSeq = new AtomicLong(1);
     private final DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm");
     private final ChatTransport transport = new SocketChatTransport(PORT);
+    private final Mediador mediador = Mediador.getInstance();
+    private final BlacklistDao blacklistDao = new BlacklistDao();
 
     private Label localIpValue;
     private Label remoteIpValue;
@@ -57,6 +62,7 @@ public class ChatUIApp extends Application {
     private volatile boolean incomingRequestDialogOpen;
     private volatile boolean invitationAccepted;
     private final Map<String, Button> contactButtons = new LinkedHashMap<>();
+    private Timeline mediatorEventPoller;
 
     @Override
     public void start(Stage stage) {
@@ -81,49 +87,47 @@ public class ChatUIApp extends Application {
         stage.setScene(scene);
         stage.show();
 
-        configureTransport();
         transport.start();
+        startMediatorPolling();
         addSystemMessage("Escuchando en puerto " + PORT + ". Agrega contactos para conectar.");
     }
 
     @Override
     public void stop() {
+        if (mediatorEventPoller != null) {
+            mediatorEventPoller.stop();
+        }
         transport.stop();
     }
 
-    private void configureTransport() {
-        transport.setListener(new ChatTransportListener() {
-            @Override
-            public void onConnected(String remoteIp, String contextMessage) {
-                addOrSelectContact(remoteIp);
-                setPendingState(remoteIp, contextMessage);
-                invitationAccepted = false;
-                if (contextMessage != null && contextMessage.startsWith("Conectado a ")) {
-                    sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
-                }
-            }
+    private void startMediatorPolling() {
+        mediatorEventPoller = new Timeline(new KeyFrame(Duration.millis(80), e -> pollMediatorEvents()));
+        mediatorEventPoller.setCycleCount(Timeline.INDEFINITE);
+        mediatorEventPoller.play();
+    }
 
-            @Override
-            public void onDisconnected(String remoteIp, String reason) {
-                invitationAccepted = false;
-                Platform.runLater(() -> {
+    private void pollMediatorEvents() {
+        for (Mediador.TransportEvent event : mediador.drainTransportEvents()) {
+            switch (event.type()) {
+                case CONNECTED -> {
+                    addOrSelectContact(event.remoteIp());
+                    setPendingState(event.remoteIp(), event.detail());
+                    invitationAccepted = false;
+                    if (event.detail() != null && event.detail().startsWith("Conectado a ")) {
+                        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
+                    }
+                }
+                case DISCONNECTED -> {
+                    invitationAccepted = false;
                     remoteIpValue.setText("-");
                     statusValue.setText("Sin conexión");
                     markActiveContact(null);
-                });
-                addSystemMessage(reason);
+                    addSystemMessage(event.detail());
+                }
+                case MESSAGE -> handleProtocolLine(event.payload(), event.remoteIp());
+                case ERROR -> addSystemMessage(event.detail());
             }
-
-            @Override
-            public void onMessageReceived(String line) {
-                handleProtocolLine(line);
-            }
-
-            @Override
-            public void onError(String message, Exception exception) {
-                addSystemMessage(message);
-            }
-        });
+        }
     }
 
     private VBox buildHeader() {
@@ -241,13 +245,23 @@ public class ChatUIApp extends Application {
         transport.connect(ip);
     }
 
-    private void handleProtocolLine(String line) {
+    private void handleProtocolLine(String line, String remoteIp) {
         try {
             ProtocolMessage msg = ProtocolMessage.parse(line);
             switch (msg.code()) {
                 case REQUEST -> {
-                    addSystemMessage("Solicitud recibida de " + msg.param(1));
-                    Platform.runLater(() -> showMessageRequestPopup(msg.param(0), msg.param(1)));
+                    String requesterId = msg.param(0);
+                    String requesterName = msg.param(1);
+                    String ip = resolveRemoteIp(remoteIp);
+
+                    if (isRequesterBlocked(requesterId)) {
+                        transport.disconnect();
+                        addSystemMessage("Conexión rechazada automáticamente (usuario en lista negra).");
+                        break;
+                    }
+
+                    addSystemMessage("solicitud recibida de " + requesterName);
+                    Platform.runLater(() -> showMessageRequestPopup(ip, requesterId, requesterName));
                 }
                 case ACCEPT -> {
                     invitationAccepted = true;
@@ -355,7 +369,7 @@ public class ChatUIApp extends Application {
         popup.show();
     }
 
-    private void showMessageRequestPopup(String requesterId, String requesterName) {
+    private void showMessageRequestPopup(String remoteIp, String requesterId, String requesterName) {
         if (primaryStage == null) {
             return;
         }
@@ -383,24 +397,25 @@ public class ChatUIApp extends Application {
 
         Runnable rejectRequest = () -> {
             if (handled.compareAndSet(false, true)) {
-                responderInvitacion(requesterId, requesterName, false);
-                addSystemMessage("Rechazaste la solicitud de " + requesterName + ".");
+                addToBlacklist(requesterId, requesterName, remoteIp);
+                responderInvitacion(false);
+                addSystemMessage("rechazaste solicitud de " + requesterName + ".");
             }
         };
 
-        Button reject = new Button("Rechazar");
+        Button reject = new Button("rechazar");
         reject.getStyleClass().add("secondary-button");
         reject.setOnAction(e -> {
             rejectRequest.run();
             popup.close();
         });
 
-        Button accept = new Button("Aceptar");
+        Button accept = new Button("aceptar");
         accept.getStyleClass().add("primary-button");
         accept.setOnAction(e -> {
             if (handled.compareAndSet(false, true)) {
-                responderInvitacion(requesterId, requesterName, true);
-                addSystemMessage("Aceptaste la solicitud de " + requesterName + ".");
+                responderInvitacion(true);
+                addSystemMessage("aceptaste la solicitud de " + requesterName + ".");
             }
             popup.close();
         });
@@ -426,25 +441,38 @@ public class ChatUIApp extends Application {
         popup.show();
     }
 
-    private void responderInvitacion(String requesterId, String requesterName, boolean aceptar) {
-        String remoteIp = remoteIpValue.getText();
-        SocketClient socketClient = Mediador.getInstance().obtenerCliente(remoteIp);
-        if (socketClient == null) {
-            sendProtocol(aceptar
-                    ? ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, localName)
-                    : ProtocolMessage.of(ProtocolMessage.Code.REJECT));
-            return;
+    private void responderInvitacion(boolean aceptar) {
+        sendProtocol(aceptar
+                ? ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, localName)
+                : ProtocolMessage.of(ProtocolMessage.Code.REJECT));
+    }
+
+    private String resolveRemoteIp(String eventRemoteIp) {
+        String ip = eventRemoteIp == null ? "" : eventRemoteIp.trim();
+        if (!ip.isEmpty()) {
+            return ip;
         }
-        ProtocolMessage requestMessage = ProtocolMessage.of(ProtocolMessage.Code.REQUEST, requesterId, requesterName);
-        ProtocolMessage respuesta = Mediador.getInstance().onMessage(
-                socketClient, requestMessage, aceptar, localUserId, localName);
-        if (respuesta == null) {
-            return;
+        if (remoteIpValue == null || remoteIpValue.getText() == null) {
+            return null;
         }
+        String fromUi = remoteIpValue.getText().trim();
+        return fromUi.isEmpty() || "-".equals(fromUi) ? null : fromUi;
+    }
+
+    private boolean isRequesterBlocked(String requesterId) {
         try {
-            socketClient.send(respuesta);
-        } catch (IOException ex) {
-            addSystemMessage("No se pudo responder invitación: " + ex.getMessage());
+            return blacklistDao.isBlocked(requesterId);
+        } catch (SQLException ex) {
+            addSystemMessage("no se pudo verificar la blacklist: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private void addToBlacklist(String requesterId, String requesterName, String remoteIp) {
+        try {
+            blacklistDao.addBlockedRequester(requesterId, requesterName, remoteIp);
+        } catch (SQLException ex) {
+            addSystemMessage("no se pudo guardar en la blacklist: " + ex.getMessage());
         }
     }
 
