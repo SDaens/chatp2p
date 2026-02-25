@@ -585,6 +585,7 @@ public class ChatUIApp extends Application {
             HBox row = self ? new HBox(8, bubble, avatar) : new HBox(8, avatar, bubble);
             row.getStyleClass().add("message-row");
             row.setAlignment(self ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT);
+            row.setMaxWidth(Double.MAX_VALUE);
 
             messages.getChildren().add(row);
             scrollPane.setVvalue(1.0);
@@ -619,6 +620,7 @@ public class ChatUIApp extends Application {
             HBox row = new HBox(bubble);
             row.getStyleClass().addAll("message-row", "system-row");
             row.setAlignment(Pos.CENTER);
+            row.setMaxWidth(Double.MAX_VALUE);
 
             messages.getChildren().add(row);
             scrollPane.setVvalue(1.0);
