@@ -34,7 +34,7 @@ public class ContactDao {
         if (existColumn(result, Contact.Column.IP)) {
             prefacturaSync.setIp(result.getString(Contact.Column.IP));
         }
-        return prefacturaSync;
+            return prefacturaSync;
     };
 
     public static boolean existColumn(ResultSet result, String columnName) {
