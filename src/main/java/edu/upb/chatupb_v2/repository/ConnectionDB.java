@@ -30,15 +30,10 @@ public class ConnectionDB {
         try {
             Class.forName("org.sqlite.JDBC");
             conn = DriverManager.getConnection("jdbc:sqlite:chat_upb.sqlite");
-            if (conn != null) {
-                System.out.println("Conexión exitosa.");
-            } else {
-                System.out.println("Conexión fallida");
-            }
         } catch (SQLException e) {
-            System.out.println(e.getMessage());
+            throw new IllegalStateException("No se pudo abrir la conexión SQLite", e);
         }catch(ClassNotFoundException e){
-        
+            throw new IllegalStateException("No se encontró el driver JDBC de SQLite", e);
         }
         return conn;   
     }

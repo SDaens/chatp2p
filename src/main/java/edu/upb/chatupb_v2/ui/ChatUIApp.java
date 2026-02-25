@@ -5,6 +5,8 @@ import edu.upb.chatupb_v2.bl.server.ChatTransport;
 import edu.upb.chatupb_v2.bl.server.Mediador;
 import edu.upb.chatupb_v2.bl.server.SocketChatTransport;
 import edu.upb.chatupb_v2.repository.BlacklistDao;
+import edu.upb.chatupb_v2.repository.Contact;
+import edu.upb.chatupb_v2.repository.ContactDao;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Application;
@@ -21,6 +23,7 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
@@ -28,9 +31,13 @@ import javafx.stage.Window;
 import javafx.util.Duration;
 
 import java.io.IOException;
+import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.sql.SQLException;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -50,6 +57,8 @@ public class ChatUIApp extends Application {
     private final ChatTransport transport = new SocketChatTransport(PORT);
     private final Mediador mediador = Mediador.getInstance();
     private final BlacklistDao blacklistDao = new BlacklistDao();
+    private final ContactDao contactDao = new ContactDao();
+    private final ContactStatusRenderer contactRenderer = new ContactStatusRenderer();
 
     private Label localIpValue;
     private Label remoteIpValue;
@@ -61,7 +70,7 @@ public class ChatUIApp extends Application {
     private Stage primaryStage;
     private volatile boolean incomingRequestDialogOpen;
     private volatile boolean invitationAccepted;
-    private final Map<String, Button> contactButtons = new LinkedHashMap<>();
+    private final Map<String, ContactStatusRenderer.ContactItemView> contactItems = new LinkedHashMap<>();
     private Timeline mediatorEventPoller;
 
     @Override
@@ -87,6 +96,7 @@ public class ChatUIApp extends Application {
         stage.setScene(scene);
         stage.show();
 
+        loadSavedContacts();
         transport.start();
         startMediatorPolling();
         addSystemMessage("Escuchando en puerto " + PORT + ". Agrega contactos para conectar.");
@@ -111,6 +121,7 @@ public class ChatUIApp extends Application {
             switch (event.type()) {
                 case CONNECTED -> {
                     addOrSelectContact(event.remoteIp());
+                    setContactOnline(event.remoteIp());
                     setPendingState(event.remoteIp(), event.detail());
                     invitationAccepted = false;
                     if (event.detail() != null && event.detail().startsWith("Conectado a ")) {
@@ -118,6 +129,7 @@ public class ChatUIApp extends Application {
                     }
                 }
                 case DISCONNECTED -> {
+                    setContactOffline(resolveRemoteIp(event.remoteIp()));
                     invitationAccepted = false;
                     remoteIpValue.setText("-");
                     statusValue.setText("Sin conexión");
@@ -256,7 +268,7 @@ public class ChatUIApp extends Application {
 
                     if (isRequesterBlocked(requesterId)) {
                         transport.disconnect();
-                        addSystemMessage("Conexión rechazada automáticamente (usuario en lista negra).");
+                        addSystemMessage("conexion rechazada automáticamente (usuario en lista negra).");
                         break;
                     }
 
@@ -276,7 +288,8 @@ public class ChatUIApp extends Application {
                 case HELLO_ACCEPT -> addSystemMessage("Handshake de hello confirmado.");
                 case HELLO_REJECT -> addSystemMessage("Hello rechazado por contraparte.");
                 case CHAT -> {
-                    addChatBubble(msg.param(2), false);
+                    String sentAt = msg.params().size() > 3 ? formatEpochMillis(msg.param(3)) : LocalTime.now().format(timeFmt);
+                    addChatBubble(msg.param(2), false, sentAt, resolveRemoteIp(remoteIp));
                     sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.RECEIPT, msg.param(1)));
                 }
                 case RECEIPT -> addSystemMessage("Mensaje confirmado: " + msg.param(0));
@@ -302,8 +315,9 @@ public class ChatUIApp extends Application {
         }
 
         String messageId = localUserId + "-" + messageSeq.getAndIncrement();
-        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.CHAT, localUserId, messageId, text));
-        addChatBubble(text, true);
+        String sentAtMillis = String.valueOf(System.currentTimeMillis());
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.CHAT, localUserId, messageId, text, sentAtMillis));
+        addChatBubble(text, true, formatEpochMillis(sentAtMillis), localName);
         input.clear();
     }
 
@@ -477,53 +491,119 @@ public class ChatUIApp extends Application {
     }
 
     private void addOrSelectContact(String ip) {
+        saveContactIfNeeded(ip);
         Platform.runLater(() -> {
             String cleanIp = ip == null ? "" : ip.trim();
             if (cleanIp.isEmpty()) {
                 return;
             }
-            Button existing = contactButtons.get(cleanIp);
+            ContactStatusRenderer.ContactItemView existing = contactItems.get(cleanIp);
             if (existing != null) {
                 return;
             }
-            Button contactBtn = new Button(cleanIp);
-            contactBtn.getStyleClass().add("contact-item");
-            contactBtn.setMaxWidth(Double.MAX_VALUE);
-            contactBtn.setOnAction(e -> connectToRemote(cleanIp));
-            contactsBox.getChildren().add(contactBtn);
-            contactButtons.put(cleanIp, contactBtn);
+            ContactStatusRenderer.ContactItemView itemView = contactRenderer.create(cleanIp, e -> connectToRemote(cleanIp));
+            contactsBox.getChildren().add(itemView.button());
+            contactItems.put(cleanIp, itemView);
         });
     }
 
+    private void loadSavedContacts() {
+        try {
+            for (Contact contact : contactDao.findAll()) {
+                addOrSelectContact(contact.getIp());
+            }
+        } catch (SQLException ex) {
+            addSystemMessage("no se pudieron cargar contactos guardados: " + ex.getMessage());
+        } catch (Exception ex) {
+            addSystemMessage("error cargando contactos: " + ex.getMessage());
+        }
+    }
+
+    private void saveContactIfNeeded(String ip) {
+        String cleanIp = ip == null ? "" : ip.trim();
+        if (cleanIp.isEmpty()) {
+            return;
+        }
+        try {
+            Contact contact = Contact.builder()
+                    .code(cleanIp)
+                    .name(cleanIp)
+                    .ip(cleanIp)
+                    .build();
+            contactDao.saveOrUpdateByIp(contact);
+        } catch (Exception ex) {
+            addSystemMessage("no se pudo guardar el contacto " + cleanIp + ": " + ex.getMessage());
+        }
+    }
+
     private void markActiveContact(String ip) {
-        for (Map.Entry<String, Button> entry : contactButtons.entrySet()) {
-            entry.getValue().getStyleClass().remove("contact-item-active");
+        for (Map.Entry<String, ContactStatusRenderer.ContactItemView> entry : contactItems.entrySet()) {
+            entry.getValue().button().getStyleClass().remove("contact-item-active");
             if (ip != null && ip.equals(entry.getKey())) {
-                entry.getValue().getStyleClass().add("contact-item-active");
+                entry.getValue().button().getStyleClass().add("contact-item-active");
             }
         }
     }
 
-    private void addChatBubble(String text, boolean self) {
+    private void setContactOnline(String ip) {
+        setContactStatus(ip, true);
+    }
+
+    private void setContactOffline(String ip) {
+        setContactStatus(ip, false);
+    }
+
+    private void setContactStatus(String ip, boolean online) {
+        Platform.runLater(() -> {
+            String cleanIp = ip == null ? "" : ip.trim();
+            if (cleanIp.isEmpty()) {
+                return;
+            }
+            ContactStatusRenderer.ContactItemView itemView = contactItems.get(cleanIp);
+            if (itemView == null) {
+                return;
+            }
+            contactRenderer.renderStatus(itemView, online);
+        });
+    }
+
+    private void addChatBubble(String text, boolean self, String timeText, String userLabel) {
         Platform.runLater(() -> {
             Label textNode = new Label(text);
             textNode.getStyleClass().add("message-text");
             textNode.setWrapText(true);
 
-            Label timeNode = new Label(LocalTime.now().format(timeFmt));
+            Label timeNode = new Label(timeText);
             timeNode.getStyleClass().add("message-time");
 
             VBox bubble = new VBox(4, textNode, timeNode);
             bubble.getStyleClass().add(self ? "bubble-self" : "bubble-peer");
             bubble.setMaxWidth(420);
 
-            HBox row = new HBox(bubble);
+            StackPane avatar = ChatIcon.create(userLabel, self);
+
+            HBox row = self ? new HBox(8, bubble, avatar) : new HBox(8, avatar, bubble);
             row.getStyleClass().add("message-row");
             row.setAlignment(self ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT);
 
             messages.getChildren().add(row);
             scrollPane.setVvalue(1.0);
         });
+    }
+
+    private String formatEpochMillis(String rawMillis) {
+        if (rawMillis == null || rawMillis.isBlank()) {
+            return LocalTime.now().format(timeFmt);
+        }
+        try {
+            long millis = Long.parseLong(rawMillis.trim());
+            return java.time.Instant.ofEpochMilli(millis)
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalTime()
+                    .format(timeFmt);
+        } catch (Exception ex) {
+            return rawMillis.trim();
+        }
     }
 
     private void addSystemMessage(String text) {
@@ -547,7 +627,21 @@ public class ChatUIApp extends Application {
 
     private String resolveLocalIp() {
         try {
+            for (NetworkInterface networkInterface : java.util.Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!networkInterface.isUp() || networkInterface.isLoopback() || networkInterface.isVirtual()) {
+                    continue;
+                }
+                for (InetAddress address : java.util.Collections.list(networkInterface.getInetAddresses())) {
+                    if (address instanceof Inet4Address
+                            && !address.isLoopbackAddress()
+                            && address.isSiteLocalAddress()) {
+                        return address.getHostAddress();
+                    }
+                }
+            }
             return InetAddress.getLocalHost().getHostAddress();
+        } catch (SocketException ex) {
+            return "IP no disponible";
         } catch (Exception ex) {
             return "127.0.0.1";
         }

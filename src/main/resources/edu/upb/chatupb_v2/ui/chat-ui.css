@@ -64,7 +64,6 @@
 
 .contact-item {
     -fx-background-color: rgba(255, 255, 255, 0.08);
-    -fx-text-fill: #e7f2ff;
     -fx-alignment: center-left;
     -fx-background-radius: 10;
     -fx-padding: 10 12;
@@ -73,7 +72,35 @@
 
 .contact-item-active {
     -fx-background-color: linear-gradient(to bottom right, #4ea1ff, #356bff);
+}
+
+.contact-item-graphic {
+    -fx-alignment: center-left;
+}
+
+.contact-item-label {
+    -fx-text-fill: #e7f2ff;
+    -fx-font-size: 13px;
+}
+
+.contact-item-active .contact-item-label {
     -fx-text-fill: #f5fbff;
+}
+
+.contact-status-dot {
+    -fx-min-width: 10;
+    -fx-min-height: 10;
+    -fx-max-width: 10;
+    -fx-max-height: 10;
+    -fx-background-radius: 999;
+}
+
+.contact-status-online {
+    -fx-background-color: #2dd66d;
+}
+
+.contact-status-offline {
+    -fx-background-color: #ff4d5a;
 }
 
 
@@ -93,6 +120,7 @@
 
 .message-row {
     -fx-fill-width: true;
+    -fx-alignment: center-left;
 }
 
 .message-text {
@@ -103,6 +131,29 @@
 .message-time {
     -fx-font-size: 10px;
     -fx-text-fill: rgba(234, 244, 255, 0.55);
+}
+
+.chat-avatar {
+    -fx-min-width: 34;
+    -fx-min-height: 34;
+    -fx-max-width: 34;
+    -fx-max-height: 34;
+    -fx-background-radius: 999;
+    -fx-alignment: center;
+}
+
+.chat-avatar-self {
+    -fx-background-color: linear-gradient(to bottom right, #8cffc3, #4ea1ff);
+}
+
+.chat-avatar-peer {
+    -fx-background-color: rgba(255, 255, 255, 0.2);
+}
+
+.chat-avatar-text {
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #0f1d2c;
 }
 
 .bubble-peer {
