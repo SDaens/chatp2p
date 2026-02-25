@@ -3,7 +3,7 @@
  */
 package edu.upb.chatupb_v2;
 
-import edu.upb.chatupb_v2.ui.ChatUIApp;
+import edu.upb.chatupb_v2.view.ChatUIApp;
 
 /**
  * @author rlaredo
