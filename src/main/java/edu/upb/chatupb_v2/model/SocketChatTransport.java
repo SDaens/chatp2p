@@ -2,14 +2,10 @@ package edu.upb.chatupb_v2.model;
 
 import edu.upb.chatupb_v2.model.ProtocolMessage;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 
 public class SocketChatTransport implements ChatTransport {
 
@@ -23,10 +19,7 @@ public class SocketChatTransport implements ChatTransport {
     private volatile ServerSocket listenerSocket;
     private volatile Thread listenerThread;
 
-    private volatile Socket peerSocket;
-    private volatile BufferedReader peerReader;
-    private volatile OutputStream peerOutput;
-    private volatile Thread peerReaderThread;
+    private volatile SocketClient peerClient;
 
     public SocketChatTransport(int port) {
         this.port = port;
@@ -37,9 +30,11 @@ public class SocketChatTransport implements ChatTransport {
         if (listener == null) {
             this.listener = new ChatTransportListener() {
             };
+            mediador.setTransportListener(this.listener);
             return;
         }
         this.listener = listener;
+        mediador.setTransportListener(listener);
     }
 
     @Override
@@ -104,63 +99,28 @@ public class SocketChatTransport implements ChatTransport {
         if (message == null) {
             return;
         }
-
-        String payload = message.serialize() + System.lineSeparator();
-        byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
-
         synchronized (connectionLock) {
-            if (peerOutput == null) {
+            if (peerClient == null) {
                 throw new IOException("Sin conexión activa");
             }
-            peerOutput.write(bytes);
-            peerOutput.flush();
+            peerClient.send(message);
         }
     }
 
     @Override
     public boolean isConnected() {
-        return peerSocket != null && peerSocket.isConnected() && !peerSocket.isClosed();
+        return peerClient != null && peerClient.isConnected();
     }
 
     private void attachPeerSocket(Socket socket, String contextMessage) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-        OutputStream output = socket.getOutputStream();
+        SocketClient client = new SocketClient(socket);
+        client.setListener(mediador);
 
         synchronized (connectionLock) {
             closePeerLocked();
-            peerSocket = socket;
-            peerReader = reader;
-            peerOutput = output;
+            peerClient = client;
         }
-
-        String remoteIp = socket.getInetAddress().getHostAddress();
-        mediador.registrarCliente(remoteIp, new SocketClient(socket));
-        mediador.publishConnected(remoteIp, contextMessage);
-
-        peerReaderThread = new Thread(() -> listenPeer(socket, reader), "transport-peer-reader");
-        peerReaderThread.setDaemon(true);
-        peerReaderThread.start();
-    }
-
-    private void listenPeer(Socket socket, BufferedReader reader) {
-        String remoteIp = socket.getInetAddress().getHostAddress();
-        try {
-            String line;
-            while (running && (line = reader.readLine()) != null) {
-                mediador.publishIncomingMessage(remoteIp, line);
-            }
-        } catch (IOException ex) {
-            if (running) {
-                mediador.publishError("Conexión cerrada: " + ex.getMessage(), ex);
-            }
-        } finally {
-            synchronized (connectionLock) {
-                if (socket == peerSocket) {
-                    closePeerLocked();
-                    mediador.publishDisconnected(remoteIp, "Conexión finalizada");
-                }
-            }
-        }
+        client.startListening(contextMessage);
     }
 
     private void closeListener() {
@@ -175,33 +135,9 @@ public class SocketChatTransport implements ChatTransport {
     }
 
     private void closePeerLocked() {
-        String remoteIp = peerSocket != null ? peerSocket.getInetAddress().getHostAddress() : null;
-
-        try {
-            if (peerReader != null) {
-                peerReader.close();
-            }
-        } catch (IOException ignored) {
+        if (peerClient != null) {
+            peerClient.close();
         }
-        try {
-            if (peerOutput != null) {
-                peerOutput.close();
-            }
-        } catch (IOException ignored) {
-        }
-        try {
-            if (peerSocket != null) {
-                peerSocket.close();
-            }
-        } catch (IOException ignored) {
-        }
-
-        peerReader = null;
-        peerOutput = null;
-        peerSocket = null;
-
-        if (remoteIp != null && !remoteIp.isBlank()) {
-            mediador.eliminarCliente(remoteIp);
-        }
+        peerClient = null;
     }
 }
