@@ -10,25 +10,25 @@ import javafx.scene.layout.Region;
 
 public class ContactStatusRenderer {
 
-    public ContactItemView create(String ip, EventHandler<ActionEvent> onClick) {
+    public ContactItemView create(String ip, EventHandler<ActionEvent> onOpenChat) {
         Region statusDot = new Region();
         statusDot.getStyleClass().addAll("contact-status-dot", "contact-status-offline");
 
         Label ipLabel = new Label(ip);
         ipLabel.getStyleClass().add("contact-item-label");
+        ipLabel.setWrapText(false);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox content = new HBox(10, statusDot, ipLabel, spacer);
+        HBox content = new HBox(6, statusDot, ipLabel, spacer);
         content.getStyleClass().add("contact-item-graphic");
 
         Button button = new Button();
         button.getStyleClass().add("contact-item");
         button.setGraphic(content);
         button.setMaxWidth(Double.MAX_VALUE);
-        button.setOnAction(onClick);
-
+        button.setOnAction(onOpenChat);
         return new ContactItemView(button, statusDot);
     }
 

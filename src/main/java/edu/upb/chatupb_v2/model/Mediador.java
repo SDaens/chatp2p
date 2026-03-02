@@ -28,7 +28,7 @@ public class Mediador implements SocketListener {
 
     private Mediador() {
         this.clientes = new HashMap<>();
-        this.transportEvents = new LinkedBlockingQueue<>();
+        this.transportEvents = new LinkedBlockingQueue<>(); 
     }
 
 

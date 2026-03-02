@@ -59,15 +59,19 @@
 }
 
 .contacts-list {
-    -fx-padding: 4 0 4 0;
+    -fx-padding: 2 0 2 0;
+    -fx-spacing: 4;
 }
 
 .contact-item {
     -fx-background-color: rgba(255, 255, 255, 0.08);
     -fx-alignment: center-left;
-    -fx-background-radius: 10;
-    -fx-padding: 10 12;
+    -fx-background-radius: 8;
+    -fx-padding: 5 8;
+    -fx-min-height: 30;
+    -fx-pref-height: 30;
     -fx-max-width: Infinity;
+    -fx-background-insets: 0;
 }
 
 .contact-item-active {
@@ -80,7 +84,7 @@
 
 .contact-item-label {
     -fx-text-fill: #e7f2ff;
-    -fx-font-size: 13px;
+    -fx-font-size: 12px;
 }
 
 .contact-item-active .contact-item-label {
@@ -88,10 +92,10 @@
 }
 
 .contact-status-dot {
-    -fx-min-width: 10;
-    -fx-min-height: 10;
-    -fx-max-width: 10;
-    -fx-max-height: 10;
+    -fx-min-width: 8;
+    -fx-min-height: 8;
+    -fx-max-width: 8;
+    -fx-max-height: 8;
     -fx-background-radius: 999;
 }
 
@@ -262,6 +266,13 @@
     -fx-text-fill: #e7f2ff;
     -fx-background-radius: 12;
     -fx-padding: 8 14;
+}
+
+.contact-connect-button {
+    -fx-background-color: rgba(140, 255, 195, 0.16);
+    -fx-text-fill: #d8ffec;
+    -fx-font-size: 12px;
+    -fx-padding: 6 10;
 }
 
 .scroll-bar:vertical {
