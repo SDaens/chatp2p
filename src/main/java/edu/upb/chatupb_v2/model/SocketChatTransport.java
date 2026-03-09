@@ -45,7 +45,7 @@ public class SocketChatTransport implements ChatTransport {
                 listenerSocket = ss;
                 while (running) {
                     Socket accepted = ss.accept();
-                    attachPeerSocket(accepted, "Conexión entrante");
+                    attachPeerSocket(accepted, "Conexión entrante", false);
                 }
             } catch (IOException ex) {
                 if (running) {
@@ -78,7 +78,7 @@ public class SocketChatTransport implements ChatTransport {
             try {
                 Socket socket = new Socket();
                 socket.connect(new InetSocketAddress(cleanIp, port), 2500);
-                attachPeerSocket(socket, "Conectado a " + cleanIp);
+                attachPeerSocket(socket, "Conectado a " + cleanIp, true);
             } catch (IOException ex) {
                 mediador.publishError("No se pudo conectar a " + cleanIp + ":" + port + " - " + ex.getMessage(), ex);
             }
@@ -112,15 +112,15 @@ public class SocketChatTransport implements ChatTransport {
         return peerClient != null && peerClient.isConnected();
     }
 
-    private void attachPeerSocket(Socket socket, String contextMessage) throws IOException {
-        SocketClient client = new SocketClient(socket);
+    private void attachPeerSocket(Socket socket, String contextMessage, boolean initiator) throws IOException {
+        SocketClient client = new SocketClient(socket, initiator, contextMessage);
         client.setListener(mediador);
-
+    
         synchronized (connectionLock) {
             closePeerLocked();
             peerClient = client;
         }
-        client.startListening(contextMessage);
+        client.startListening();
     }
 
     private void closeListener() {

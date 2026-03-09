@@ -10,6 +10,13 @@ public abstract class ChatSessionObserver {
     public void onChatMessage(String contactIp, String text, boolean self, String sentAt, String senderLabel) {
     }
 
+    public void onChatMessage(String contactIp, String messageId, String text, boolean self, String sentAt, String senderLabel) {
+        onChatMessage(contactIp, text, self, sentAt, senderLabel);
+    }
+
+    public void onOutgoingMessageStatus(String contactIp, String messageId, String status) {
+    }
+
     public void onSystemMessage(String text) {
     }
 

@@ -67,9 +67,9 @@
     -fx-background-color: rgba(255, 255, 255, 0.08);
     -fx-alignment: center-left;
     -fx-background-radius: 8;
-    -fx-padding: 5 8;
-    -fx-min-height: 30;
-    -fx-pref-height: 30;
+    -fx-padding: 6 8;
+    -fx-min-height: 42;
+    -fx-pref-height: 42;
     -fx-max-width: Infinity;
     -fx-background-insets: 0;
 }
@@ -85,10 +85,20 @@
 .contact-item-label {
     -fx-text-fill: #e7f2ff;
     -fx-font-size: 12px;
+    -fx-font-weight: 600;
 }
 
 .contact-item-active .contact-item-label {
     -fx-text-fill: #f5fbff;
+}
+
+.contact-item-ip {
+    -fx-text-fill: rgba(231, 242, 255, 0.75);
+    -fx-font-size: 10.5px;
+}
+
+.contact-item-active .contact-item-ip {
+    -fx-text-fill: rgba(245, 251, 255, 0.95);
 }
 
 .contact-status-dot {
@@ -135,6 +145,23 @@
 .message-time {
     -fx-font-size: 10px;
     -fx-text-fill: rgba(234, 244, 255, 0.55);
+}
+
+.message-status {
+    -fx-font-size: 10px;
+    -fx-font-weight: 600;
+}
+
+.message-status-sent {
+    -fx-text-fill: rgba(234, 244, 255, 0.55);
+}
+
+.message-status-delivered {
+    -fx-text-fill: #9fd3ff;
+}
+
+.message-status-seen {
+    -fx-text-fill: #8cffc3;
 }
 
 .chat-avatar {

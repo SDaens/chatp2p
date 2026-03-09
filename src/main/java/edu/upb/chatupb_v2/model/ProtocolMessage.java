@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 public abstract class ProtocolMessage {
@@ -16,7 +17,7 @@ public abstract class ProtocolMessage {
         HELLO_BROADCAST("004", 1, "ID"),
         HELLO_ACCEPT("005", 1, "ID"),
         HELLO_REJECT("006", 0),
-        CHAT("007", 4, "ID_user", "ID_mensaje", "Mensaje", "Timestamp"),
+        CHAT("007", 3, "ID_user", "ID_mensaje", "Mensaje"),
         RECEIPT("008", 1, "ID_mensaje"),
         DELETE("009", 1, "ID_mensaje"),
         BUZZ("010", 1, "ID_ver"),
@@ -87,20 +88,20 @@ public abstract class ProtocolMessage {
         }
         String code = split[0].trim();
         return switch (code) {
-            case "001" -> parseRequest(split);
-            case "002" -> parseAccept(split);
-            case "003" -> parseReject(split);
-            case "004" -> parseHelloBroadcast(split);
-            case "005" -> parseHelloAccept(split);
-            case "006" -> parseHelloReject(split);
-            case "007" -> parseChat(split);
-            case "008" -> parseReceipt(split);
+            case "001", "01", "1" -> parseRequest(split);
+            case "002", "02", "2" -> parseAccept(split);
+            case "003", "03", "3" -> parseReject(split);
+            case "004", "04", "4" -> parseHelloBroadcast(split);
+            case "005", "05", "5" -> parseHelloAccept(split);
+            case "006", "06", "6" -> parseHelloReject(split);
+            case "007", "07", "7" -> parseChat(split);
+            case "008", "08", "8" -> parseReceipt(split);
             case "009" -> parseDelete(split);
             case "010" -> parseBuzz(split);
             case "011" -> parsePin(split);
-            case "012" -> parseSeen(split);
+            case "012", "12" -> parseSeen(split);
             case "013" -> parseTheme(split);
-            case "0018" -> parseTheme(split);
+            case "0018", "018", "18" -> parseOutLine(split);
             default -> throw new IllegalArgumentException("Unknown protocol code: " + code);
         };
     }
@@ -152,7 +153,7 @@ public abstract class ProtocolMessage {
     private static void validateParamCount(Code code, List<String> parts) {
         int expected = code.paramCount();
         int actual = parts == null ? 0 : parts.size();
-        if (code == Code.CHAT && (actual == 3 || actual == 4)) {
+        if (code == Code.CHAT && (actual == 2 || actual == 3 || actual == 4)) {
             return;
         }
         if (expected != actual) {
@@ -171,11 +172,19 @@ public abstract class ProtocolMessage {
     }
 
     private static ProtocolMessage parseRequest(String[] split) {
-        return of(Code.REQUEST, extractParts(split));
+        String[] parts = extractParts(split);
+        if (parts.length < 2) {
+            throw new IllegalArgumentException("Invalid request payload");
+        }
+        return new RequestMessage(parts[0], parts[1]);
     }
 
     private static ProtocolMessage parseAccept(String[] split) {
-        return of(Code.ACCEPT, extractParts(split));
+        String[] parts = extractParts(split);
+        if (parts.length < 2) {
+            throw new IllegalArgumentException("Invalid accept payload");
+        }
+        return new AcceptMessage(parts[0], parts[1]);
     }
 
     private static ProtocolMessage parseReject(String[] split) {
@@ -183,11 +192,21 @@ public abstract class ProtocolMessage {
     }
 
     private static ProtocolMessage parseHelloBroadcast(String[] split) {
-        return of(Code.HELLO_BROADCAST, extractParts(split));
+        String[] parts = extractParts(split);
+        if (parts.length == 0) {
+            throw new IllegalArgumentException("Invalid hello broadcast payload");
+        }
+        // Interop: some clients include extra fields (e.g. id|name). Keep first field as requester id.
+        return new HelloBroadcastMessage(parts[0]);
     }
 
     private static ProtocolMessage parseHelloAccept(String[] split) {
-        return of(Code.HELLO_ACCEPT, extractParts(split));
+        String[] parts = extractParts(split);
+        if (parts.length == 0) {
+            throw new IllegalArgumentException("Invalid hello accept payload");
+        }
+        // Interop: some clients include extra fields (e.g. id|name). Keep first field as responder id.
+        return new HelloAcceptMessage(parts[0]);
     }
 
     private static ProtocolMessage parseHelloReject(String[] split) {
@@ -195,11 +214,29 @@ public abstract class ProtocolMessage {
     }
 
     private static ProtocolMessage parseChat(String[] split) {
-        return of(Code.CHAT, extractParts(split));
+        String[] parts = extractParts(split);
+        if (parts.length >= 4) {
+            return new ChatMessage(parts[0], parts[1], parts[2], parts[3]);
+        }
+        if (parts.length == 3) {
+            return new ChatMessage(parts[0], parts[1], parts[2]);
+        }
+        if (parts.length == 2) {
+            // Interop: chat as userId|messageText without messageId
+            String syntheticMessageId = parts[0] + "-" + UUID.randomUUID();
+            return new ChatMessage(parts[0], syntheticMessageId, parts[1]);
+        }
+        throw new IllegalArgumentException("Invalid chat payload");
     }
 
     private static ProtocolMessage parseReceipt(String[] split) {
-        return of(Code.RECEIPT, extractParts(split));
+        String[] parts = extractParts(split);
+        if (parts.length == 0) {
+            throw new IllegalArgumentException("Invalid receipt payload");
+        }
+        // Interop: some clients send extra fields (e.g. userId|messageId). We use the last field as messageId.
+        String messageId = parts[parts.length - 1];
+        return new ReceiptMessage(messageId);
     }
 
     private static ProtocolMessage parseDelete(String[] split) {
@@ -215,7 +252,19 @@ public abstract class ProtocolMessage {
     }
 
     private static ProtocolMessage parseSeen(String[] split) {
-        return of(Code.SEEN, extractParts(split));
+        String[] parts = extractParts(split);
+        if (parts.length >= 3) {
+            return new SeenMessage(parts[0], parts[1], parts[2]);
+        }
+        if (parts.length == 2) {
+            // Interop: seen as userId|messageId
+            return new SeenMessage(parts[0], parts[1], "VISTO");
+        }
+        if (parts.length == 1) {
+            // Interop: seen as only messageId
+            return new SeenMessage("", parts[0], "VISTO");
+        }
+        throw new IllegalArgumentException("Invalid seen payload");
     }
 
     private static ProtocolMessage parseTheme(String[] split) {
@@ -369,7 +418,7 @@ public abstract class ProtocolMessage {
         }
     }
 
-    private static ProtocolMessage OutLine (String[] split) {
+    private static ProtocolMessage parseOutLine(String[] split) {
         return of(Code.OUTLINE, extractParts(split));
     }
 }
