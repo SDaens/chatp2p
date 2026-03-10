@@ -23,7 +23,8 @@ public abstract class ProtocolMessage {
         PIN("011", 1, "ID_mensaje"),
         SEEN("012", 3, "ID_user", "ID_run", "Mensaje"),
         THEME("013", 2, "ID_user", "ID_tema"),
-        OUTLINE("0018", 1, "ID_user");
+        OUTLINE("0018", 1, "ID_user"),
+        SHARE("020", 3, "ID_user", "Nombre", "IP");
 
         private final String value;
         private final int paramCount;
@@ -100,7 +101,8 @@ public abstract class ProtocolMessage {
             case "011" -> parsePin(split);
             case "012" -> parseSeen(split);
             case "013" -> parseTheme(split);
-            case "0018" -> parseTheme(split);
+            case "0018" -> parseOutline(split);
+            case "020" -> parseShare(split);
             default -> throw new IllegalArgumentException("Unknown protocol code: " + code);
         };
     }
@@ -145,7 +147,8 @@ public abstract class ProtocolMessage {
             case PIN -> new PinMessage(parts.get(0));
             case SEEN -> new SeenMessage(parts.get(0), parts.get(1), parts.get(2));
             case THEME -> new ThemeMessage(parts.get(0), parts.get(1));
-            case OUTLINE -> new RejectMessage();
+            case OUTLINE -> new OutlineMessage(parts.get(0));
+            case SHARE -> new ShareMessage(parts.get(0), parts.get(1), parts.get(2));
         };
     }
 
@@ -220,6 +223,14 @@ public abstract class ProtocolMessage {
 
     private static ProtocolMessage parseTheme(String[] split) {
         return of(Code.THEME, extractParts(split));
+    }
+
+    private static ProtocolMessage parseOutline(String[] split) {
+        return of(Code.OUTLINE, extractParts(split));
+    }
+
+    private static ProtocolMessage parseShare(String[] split) {
+        return of(Code.SHARE, extractParts(split));
     }
 
     public static final class RequestMessage extends ProtocolMessage {
@@ -369,7 +380,25 @@ public abstract class ProtocolMessage {
         }
     }
 
-    private static ProtocolMessage OutLine (String[] split) {
-        return of(Code.OUTLINE, extractParts(split));
+    public static final class OutlineMessage extends ProtocolMessage {
+        public OutlineMessage(String userId) {
+            super(List.of(userId));
+        }
+
+        @Override
+        public Code code() {
+            return Code.OUTLINE;
+        }
+    }
+
+    public static final class ShareMessage extends ProtocolMessage {
+        public ShareMessage(String userId, String name, String ip) {
+            super(List.of(userId, name, ip));
+        }
+
+        @Override
+        public Code code() {
+            return Code.SHARE;
+        }
     }
 }

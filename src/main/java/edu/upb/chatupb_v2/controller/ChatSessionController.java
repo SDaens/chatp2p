@@ -7,8 +7,11 @@ import edu.upb.chatupb_v2.model.ChatTransport;
 import edu.upb.chatupb_v2.model.ChatTransportListener;
 import edu.upb.chatupb_v2.model.Contact;
 import edu.upb.chatupb_v2.model.ContactDao;
+import edu.upb.chatupb_v2.model.CussWords;
 import edu.upb.chatupb_v2.model.ProtocolMessage;
+import edu.upb.chatupb_v2.model.SingleDigitSumStrategy;
 import edu.upb.chatupb_v2.model.SocketChatTransport;
+import edu.upb.chatupb_v2.model.TextAnalysisStrategy;
 
 import java.io.IOException;
 import java.sql.SQLException;
@@ -17,6 +20,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -34,6 +38,8 @@ public class ChatSessionController extends ChatTransportListener {
     private final String localName = "santiago d.";
     private final DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm");
     private final AtomicLong messageSeq = new AtomicLong(1);
+    private final TextAnalysisStrategy sumStrategy = new SingleDigitSumStrategy();
+    private final TextAnalysisStrategy cussWordsStrategy = new CussWords(Arrays.asList("miea", "pu", "caraj"));
     private final CopyOnWriteArrayList<ChatSessionObserver> sessionObservers = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<ConnectionRequestObserver> requestObservers = new CopyOnWriteArrayList<>();
     private IchatIU iChatIU;
@@ -94,6 +100,11 @@ public class ChatSessionController extends ChatTransportListener {
         if (cleanText.isEmpty()) {
             return false;
         }
+        String textoAnalizado = sumStrategy.transform(cleanText);
+        textoAnalizado = cussWordsStrategy.transform(textoAnalizado);
+        if (textoAnalizado == null || textoAnalizado.isBlank()) {
+            return false;
+        }
         if (!invitationAccepted) {
             publishSystemMessage("La conversación sigue pendiente. Espera a que acepten la invitación.");
             return false;
@@ -101,14 +112,43 @@ public class ChatSessionController extends ChatTransportListener {
 
         String messageId = localUserId + "-" + messageSeq.getAndIncrement();
         long sentAtMillis = System.currentTimeMillis();
-        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.CHAT, localUserId, messageId, cleanText, String.valueOf(sentAtMillis)));
-        publishChatMessage(activeRemoteIp, cleanText, true, formatEpochMillis(sentAtMillis), localName);
-        persistChatMessage(activeRemoteIp, cleanText, true, localName, sentAtMillis);
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.CHAT, localUserId, messageId, textoAnalizado, String.valueOf(sentAtMillis)));
+        publishChatMessage(activeRemoteIp, textoAnalizado, true, formatEpochMillis(sentAtMillis), localName);
+        persistChatMessage(activeRemoteIp, textoAnalizado, true, localName, sentAtMillis);
         return true;
     }
 
     public void disconnect() {
         transport.disconnect();
+    }
+
+    public boolean shareContact(Contact contactToShare) {
+        if (!transport.isConnected()) {
+            publishSystemMessage("No hay conexión activa para compartir contacto.");
+            return false;
+        }
+        if (contactToShare == null) {
+            publishSystemMessage("Debes seleccionar un contacto para compartir.");
+            return false;
+        }
+
+        String sharedIp = contactToShare.getIp() == null ? "" : contactToShare.getIp().trim();
+        if (sharedIp.isEmpty()) {
+            publishSystemMessage("El contacto seleccionado no tiene IP valida.");
+            return false;
+        }
+        String sharedId = contactToShare.getCode() == null ? "" : contactToShare.getCode().trim();
+        if (sharedId.isEmpty()) {
+            sharedId = sharedIp;
+        }
+        String sharedName = contactToShare.getName() == null ? "" : contactToShare.getName().trim();
+        if (sharedName.isEmpty()) {
+            sharedName = sharedIp;
+        }
+
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SHARE, sharedId, sharedName, sharedIp));
+        publishSystemMessage("Contacto compartido: " + sharedName + " (" + sharedIp + ")");
+        return true;
     }
 
     public void addSessionObserver(ChatSessionObserver observer) {
@@ -195,6 +235,7 @@ public class ChatSessionController extends ChatTransportListener {
                 case SEEN -> publishSystemMessage("Visto por " + msg.param(0) + ": " + msg.param(2));
                 case THEME -> publishSystemMessage("Cambio de tema recibido: " + msg.param(1));
                 case OUTLINE -> publishSystemMessage("Estoy offline. " + msg.param(0));
+                case SHARE -> handleSharedContact(msg.param(0), msg.param(1), msg.param(2));
             }
         } catch (IllegalArgumentException ex) {
             publishSystemMessage("Fragmento no reconocido: " + line);
@@ -273,6 +314,26 @@ public class ChatSessionController extends ChatTransportListener {
             contactDao.saveOrUpdateByIp(contact);
         } catch (Exception ex) {
             publishSystemMessage("no se pudo guardar el contacto " + cleanIp + ": " + ex.getMessage());
+        }
+    }
+
+    private void handleSharedContact(String userId, String name, String ip) {
+        String cleanIp = ip == null ? "" : ip.trim();
+        if (cleanIp.isEmpty()) {
+            publishSystemMessage("contacto sin ip");
+            return;
+        }
+        try {
+            Contact contact = Contact.builder()
+                    .code(userId)
+                    .name(name)
+                    .ip(cleanIp)
+                    .build();
+            contactDao.saveOrUpdateByIp(contact);
+            publishContactDiscovered(cleanIp);
+            publishSystemMessage("Contacto recibido: " + name + " (" + cleanIp + ")");
+        } catch (Exception ex) {
+            publishSystemMessage("no se guardó: " + ex.getMessage());
         }
     }
 

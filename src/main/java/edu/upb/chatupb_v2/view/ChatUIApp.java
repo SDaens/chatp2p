@@ -14,6 +14,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.ChoiceDialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
@@ -37,6 +38,7 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -239,6 +241,10 @@ public class ChatUIApp extends Application implements IchatIU {
         attach.getStyleClass().add("secondary-button");
         attach.setOnAction(e -> addSystemMessage("Adjuntos aún no implementados."));
 
+        Button shareContact = new Button("Compartir contacto");
+        shareContact.getStyleClass().add("secondary-button");
+        shareContact.setOnAction(e -> shareContact());
+
         Button send = new Button("Enviar");
         send.getStyleClass().add("primary-button");
         send.setOnAction(e -> sendChatMessage());
@@ -246,7 +252,7 @@ public class ChatUIApp extends Application implements IchatIU {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox actions = new HBox(12, attach, spacer, send);
+        HBox actions = new HBox(12, attach, shareContact, spacer, send);
         actions.setAlignment(Pos.CENTER_LEFT);
 
         VBox composer = new VBox(10, hint, input, actions);
@@ -264,6 +270,45 @@ public class ChatUIApp extends Application implements IchatIU {
         if (sent) {
             input.clear();
         }
+    }
+
+    private void shareContact() {
+        List<Contact> contacts = contactController.findAll();
+        if (contacts.isEmpty()) {
+            addSystemMessage("no hay contactos");
+            return;
+        }
+
+        Map<String, Contact> options = new LinkedHashMap<>();
+        for (Contact contact : contacts) {
+            String ip = contact.getIp() == null ? "" : contact.getIp().trim();
+            if (ip.isEmpty()) {
+                continue;
+            }
+            String name = contact.getName() == null || contact.getName().isBlank() ? ip : contact.getName().trim();
+            String code = contact.getCode() == null || contact.getCode().isBlank() ? "-" : contact.getCode().trim();
+            String label = name + " | " + ip + " | id: " + code;
+            options.put(label, contact);
+        }
+
+        if (options.isEmpty()) {
+            addSystemMessage("no hay contactos para compartir");
+            return;
+        }
+
+        List<String> labels = new ArrayList<>(options.keySet());
+        ChoiceDialog<String> dialog = new ChoiceDialog<>(labels.get(0), labels);
+        if (primaryStage != null) {
+            dialog.initOwner(primaryStage);
+        }
+        dialog.setTitle("Compartir contacto");
+        dialog.setHeaderText("Selecciona un contacto para compartir");
+        dialog.setContentText("Contacto:");
+
+        dialog.showAndWait().ifPresent(selectedLabel -> {
+            Contact selected = options.get(selectedLabel);
+            chatController.shareContact(selected);
+        });
     }
 
     private void showAddContactPopup(Window owner) {
