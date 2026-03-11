@@ -3,6 +3,7 @@ package edu.upb.chatupb_v2.model;
 public class ChatMessage implements Model {
 
     private long id;
+    private String messageId;
     private String contactIp;
     private String text;
     private boolean selfSent;
@@ -25,6 +26,14 @@ public class ChatMessage implements Model {
 
     public void setContactIp(String contactIp) {
         this.contactIp = contactIp;
+    }
+
+    public String getMessageId() {
+        return messageId;
+    }
+
+    public void setMessageId(String messageId) {
+        this.messageId = messageId;
     }
 
     public String getText() {

@@ -17,6 +17,7 @@ public class ChatMessageDao {
         String sql = """
                 CREATE TABLE IF NOT EXISTS chat_message (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    message_id TEXT,
                     contact_ip TEXT NOT NULL,
                     text TEXT NOT NULL,
                     self_sent INTEGER NOT NULL,
@@ -30,23 +31,47 @@ public class ChatMessageDao {
         } catch (SQLException ex) {
             throw new IllegalStateException("no se pudo crear la tabla chat_message", ex);
         }
+        ensureMessageIdColumn();
     }
 
-    public void save(String contactIp, String text, boolean selfSent, String senderLabel, long sentAtMillis) throws SQLException {
+    private void ensureMessageIdColumn() {
+        String sql = "PRAGMA table_info(chat_message)";
+        try (Connection conn = ConnectionDB.getInstance().getConection();
+             PreparedStatement pst = conn.prepareStatement(sql);
+             ResultSet rs = pst.executeQuery()) {
+            boolean found = false;
+            while (rs.next()) {
+                if ("message_id".equalsIgnoreCase(rs.getString("name"))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                try (PreparedStatement alter = conn.prepareStatement("ALTER TABLE chat_message ADD COLUMN message_id TEXT")) {
+                    alter.execute();
+                }
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("no se pudo migrar chat_message", ex);
+        }
+    }
+
+    public void save(String contactIp, String messageId, String text, boolean selfSent, String senderLabel, long sentAtMillis) throws SQLException {
         if (contactIp == null || contactIp.isBlank() || text == null || text.isBlank()) {
             return;
         }
         String sql = """
-                INSERT INTO chat_message(contact_ip, text, self_sent, sender_label, sent_at_millis)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO chat_message(message_id, contact_ip, text, self_sent, sender_label, sent_at_millis)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """;
         try (Connection conn = ConnectionDB.getInstance().getConection();
              PreparedStatement pst = conn.prepareStatement(sql)) {
-            pst.setString(1, contactIp.trim());
-            pst.setString(2, text);
-            pst.setInt(3, selfSent ? 1 : 0);
-            pst.setString(4, senderLabel);
-            pst.setLong(5, sentAtMillis);
+            pst.setString(1, messageId);
+            pst.setString(2, contactIp.trim());
+            pst.setString(3, text);
+            pst.setInt(4, selfSent ? 1 : 0);
+            pst.setString(5, senderLabel);
+            pst.setLong(6, sentAtMillis);
             pst.executeUpdate();
         }
     }
@@ -57,7 +82,7 @@ public class ChatMessageDao {
             return messages;
         }
         String sql = """
-                SELECT id, contact_ip, text, self_sent, sender_label, sent_at_millis
+                SELECT id, message_id, contact_ip, text, self_sent, sender_label, sent_at_millis
                 FROM chat_message
                 WHERE contact_ip = ?
                 ORDER BY sent_at_millis ASC, id ASC
@@ -69,6 +94,7 @@ public class ChatMessageDao {
                 while (rs.next()) {
                     ChatMessage message = new ChatMessage();
                     message.setId(rs.getLong("id"));
+                    message.setMessageId(rs.getString("message_id"));
                     message.setContactIp(rs.getString("contact_ip"));
                     message.setText(rs.getString("text"));
                     message.setSelfSent(rs.getInt("self_sent") == 1);
@@ -79,5 +105,18 @@ public class ChatMessageDao {
             }
         }
         return messages;
+    }
+
+    public void deleteByMessageId(String contactIp, String messageId) throws SQLException {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        String sql = "DELETE FROM chat_message WHERE contact_ip = ? AND message_id = ?";
+        try (Connection conn = ConnectionDB.getInstance().getConection();
+             PreparedStatement pst = conn.prepareStatement(sql)) {
+            pst.setString(1, contactIp.trim());
+            pst.setString(2, messageId.trim());
+            pst.executeUpdate();
+        }
     }
 }

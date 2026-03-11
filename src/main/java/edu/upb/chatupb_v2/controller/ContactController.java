@@ -24,6 +24,14 @@ public class ContactController {
         }
     }
 
+    public Contact findByIp(String ip) {
+        try {
+            return contactDao.findByIp(ip);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     public void saveByIp(String ip) {
         String cleanIp = ip == null ? "" : ip.trim();
         if (cleanIp.isEmpty()) {

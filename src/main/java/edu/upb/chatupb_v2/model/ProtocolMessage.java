@@ -16,7 +16,7 @@ public abstract class ProtocolMessage {
         HELLO_BROADCAST("004", 1, "ID"),
         HELLO_ACCEPT("005", 1, "ID"),
         HELLO_REJECT("006", 0),
-        CHAT("007", 4, "ID_user", "ID_mensaje", "Mensaje", "Timestamp"),
+        CHAT("007", 3, "ID_user", "ID_mensaje", "Mensaje"),
         RECEIPT("008", 1, "ID_mensaje"),
         DELETE("009", 1, "ID_mensaje"),
         BUZZ("010", 1, "ID_ver"),
@@ -138,9 +138,7 @@ public abstract class ProtocolMessage {
             case HELLO_BROADCAST -> new HelloBroadcastMessage(parts.get(0));
             case HELLO_ACCEPT -> new HelloAcceptMessage(parts.get(0));
             case HELLO_REJECT -> new HelloRejectMessage();
-            case CHAT -> parts.size() >= 4
-                    ? new ChatMessage(parts.get(0), parts.get(1), parts.get(2), parts.get(3))
-                    : new ChatMessage(parts.get(0), parts.get(1), parts.get(2));
+            case CHAT -> new ChatMessage(parts.get(0), parts.get(1), parts.get(2));
             case RECEIPT -> new ReceiptMessage(parts.get(0));
             case DELETE -> new DeleteMessage(parts.get(0));
             case BUZZ -> new BuzzMessage(parts.get(0));
@@ -155,9 +153,6 @@ public abstract class ProtocolMessage {
     private static void validateParamCount(Code code, List<String> parts) {
         int expected = code.paramCount();
         int actual = parts == null ? 0 : parts.size();
-        if (code == Code.CHAT && (actual == 3 || actual == 4)) {
-            return;
-        }
         if (expected != actual) {
             throw new IllegalArgumentException(
                     String.format(Locale.ROOT, "Code %s expects %d params, got %d",
@@ -302,10 +297,6 @@ public abstract class ProtocolMessage {
     public static final class ChatMessage extends ProtocolMessage {
         public ChatMessage(String userId, String messageId, String message) {
             super(List.of(userId, messageId, message));
-        }
-
-        public ChatMessage(String userId, String messageId, String message, String timestamp) {
-            super(List.of(userId, messageId, message, timestamp));
         }
 
         @Override

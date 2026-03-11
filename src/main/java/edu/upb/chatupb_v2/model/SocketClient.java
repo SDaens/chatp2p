@@ -29,6 +29,7 @@ public class SocketClient {
     };
     private volatile Thread readerThread;
     private final AtomicBoolean disconnectedNotified = new AtomicBoolean(false);
+    private final AtomicBoolean connectedNotified = new AtomicBoolean(false);
     private volatile boolean listening;
     private volatile String remoteIp;
 
@@ -62,13 +63,14 @@ public class SocketClient {
             return;
         }
         listening = true;
+        connectedNotified.set(false);
         disconnectedNotified.set(false);
-        listener.onConnected(this, remoteIp, connectedDetail);
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         readerThread = new Thread(() -> listenLoop(reader), "socket-client-reader");
         readerThread.setDaemon(true);
         readerThread.start();
+        notifyConnectedOnce(connectedDetail);
     }
 
     private void listenLoop(BufferedReader reader) {
@@ -99,11 +101,7 @@ public class SocketClient {
         if (message == null) {
             return;
         }
-        String payload = message.serialize() + System.lineSeparator();
-        byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
-        OutputStream outputStream = socket.getOutputStream();
-        outputStream.write(bytes);
-        outputStream.flush();
+        sendRaw(message.serialize());
     }
 
     public boolean isConnected() {
@@ -127,4 +125,19 @@ public class SocketClient {
             listener.onDisconnected(this, remoteIp, reason);
         }
     }
+
+    private void notifyConnectedOnce(String detail) {
+        if (connectedNotified.compareAndSet(false, true)) {
+            listener.onConnected(this, remoteIp, detail);
+        }
+    }
+
+    private synchronized void sendRaw(String payload) throws IOException {
+        String frame = payload + System.lineSeparator();
+        byte[] bytes = frame.getBytes(StandardCharsets.UTF_8);
+        OutputStream outputStream = socket.getOutputStream();
+        outputStream.write(bytes);
+        outputStream.flush();
+    }
+
 }

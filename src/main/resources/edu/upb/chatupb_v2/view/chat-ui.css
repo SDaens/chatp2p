@@ -91,6 +91,11 @@
     -fx-text-fill: #f5fbff;
 }
 
+.contact-buzz-icon {
+    -fx-font-size: 12px;
+    -fx-text-fill: #ffdd7a;
+}
+
 .contact-status-dot {
     -fx-min-width: 8;
     -fx-min-height: 8;
@@ -124,7 +129,14 @@
 
 .message-row {
     -fx-fill-width: true;
+}
+
+.message-row-peer {
     -fx-alignment: center-left;
+}
+
+.message-row-self {
+    -fx-alignment: center-right;
 }
 
 .message-text {
@@ -135,6 +147,22 @@
 .message-time {
     -fx-font-size: 10px;
     -fx-text-fill: rgba(234, 244, 255, 0.55);
+}
+
+.message-tick {
+    -fx-font-size: 10px;
+    -fx-text-fill: rgba(234, 244, 255, 0.75);
+}
+
+.message-menu {
+    -fx-background-color: transparent;
+    -fx-text-fill: rgba(234, 244, 255, 0.75);
+    -fx-font-size: 11px;
+    -fx-padding: 0 2;
+}
+
+.message-menu:hover {
+    -fx-text-fill: #ffffff;
 }
 
 .chat-avatar {

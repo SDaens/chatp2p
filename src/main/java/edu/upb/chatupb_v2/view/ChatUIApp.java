@@ -6,8 +6,11 @@ import edu.upb.chatupb_v2.controller.ContactController;
 import edu.upb.chatupb_v2.controller.ConnectionRequest;
 import edu.upb.chatupb_v2.controller.ConnectionRequestObserver;
 import edu.upb.chatupb_v2.controller.IchatIU;
+import edu.upb.chatupb_v2.controller.LocalProfileController;
 import edu.upb.chatupb_v2.model.ChatMessage;
 import edu.upb.chatupb_v2.model.Contact;
+import javafx.animation.PauseTransition;
+import javafx.animation.TranslateTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -15,17 +18,23 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ChoiceDialog;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Alert;
+import javafx.scene.control.TextInputDialog;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.geometry.Side;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
@@ -39,6 +48,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,12 +56,14 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javafx.util.Duration;
 
 public class ChatUIApp extends Application implements IchatIU {
     private static final Pattern CONNECT_ERROR_PATTERN = Pattern.compile("^No se pudo conectar a\\s+([^:]+):\\d+\\s+-\\s+.*");
 
     private final ChatSessionController chatController = new ChatSessionController();
     private final ContactController contactController = new ContactController(this);
+    private final LocalProfileController localProfileController = new LocalProfileController();
     private final ContactStatusRenderer contactRenderer = new ContactStatusRenderer();
 
     private Label localIpValue;
@@ -64,9 +76,13 @@ public class ChatUIApp extends Application implements IchatIU {
     private Stage primaryStage;
     private volatile boolean incomingRequestDialogOpen;
     private final Map<String, ContactStatusRenderer.ContactItemView> contactItems = new LinkedHashMap<>();
+    private final Map<String, Map<String, Label>> sentMessageTicks = new HashMap<>();
+    private final Map<String, Map<String, HBox>> messageRows = new HashMap<>();
+    private final Map<String, PauseTransition> buzzTimers = new HashMap<>();
     private volatile String selectedContactIp;
     private Button connectSelectedButton;
     private final DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm");
+    private TranslateTransition buzzAnimation;
 
     @Override
     public void start(Stage stage) {
@@ -94,6 +110,7 @@ public class ChatUIApp extends Application implements IchatIU {
         bindControllerEvents();
         loadSavedContactsInUI();
         chatController.setIChatIU(this);
+        ensureLocalProfileName();
         chatController.start();
     }
 
@@ -115,8 +132,8 @@ public class ChatUIApp extends Application implements IchatIU {
             }
 
             @Override
-            public void onChatMessage(String contactIp, String text, boolean self, String sentAt, String senderLabel) {
-                ChatUIApp.this.onChatMessage(contactIp, text, self, sentAt, senderLabel);
+            public void onChatMessage(String contactIp, String text, boolean self, String sentAt, String senderLabel, String messageId) {
+                ChatUIApp.this.onChatMessage(contactIp, text, self, sentAt, senderLabel, messageId);
             }
 
             @Override
@@ -127,6 +144,21 @@ public class ChatUIApp extends Application implements IchatIU {
             @Override
             public void onIncomingRequestWithoutObservers(ConnectionRequest request) {
                 ChatUIApp.this.onIncomingRequest(request);
+            }
+
+            @Override
+            public void onMessageSeen(String contactIp, String messageId) {
+                ChatUIApp.this.onMessageSeen(contactIp, messageId);
+            }
+
+            @Override
+            public void onMessageDeleted(String contactIp, String messageId) {
+                ChatUIApp.this.onMessageDeleted(contactIp, messageId);
+            }
+
+            @Override
+            public void onBuzz(String contactIp) {
+                ChatUIApp.this.onBuzz(contactIp);
             }
         });
 
@@ -236,6 +268,12 @@ public class ChatUIApp extends Application implements IchatIU {
         input.getStyleClass().add("composer-input");
         input.setPrefRowCount(2);
         input.setWrapText(true);
+        input.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.getCode() == KeyCode.ENTER && !event.isShiftDown()) {
+                event.consume();
+                sendChatMessage();
+            }
+        });
 
         Button attach = new Button("Adjuntar imagen");
         attach.getStyleClass().add("secondary-button");
@@ -245,6 +283,10 @@ public class ChatUIApp extends Application implements IchatIU {
         shareContact.getStyleClass().add("secondary-button");
         shareContact.setOnAction(e -> shareContact());
 
+        Button buzz = new Button("Buzz");
+        buzz.getStyleClass().add("secondary-button");
+        buzz.setOnAction(e -> sendBuzz());
+
         Button send = new Button("Enviar");
         send.getStyleClass().add("primary-button");
         send.setOnAction(e -> sendChatMessage());
@@ -252,7 +294,7 @@ public class ChatUIApp extends Application implements IchatIU {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox actions = new HBox(12, attach, shareContact, spacer, send);
+        HBox actions = new HBox(12, attach, shareContact, buzz, spacer, send);
         actions.setAlignment(Pos.CENTER_LEFT);
 
         VBox composer = new VBox(10, hint, input, actions);
@@ -432,12 +474,69 @@ public class ChatUIApp extends Application implements IchatIU {
             }
             ContactStatusRenderer.ContactItemView existing = contactItems.get(cleanIp);
             if (existing != null) {
+                existing.label().setText(buildContactLabel(cleanIp));
                 return;
             }
-            ContactStatusRenderer.ContactItemView itemView = contactRenderer.create(cleanIp, e -> selectContact(cleanIp, false));
+            String label = buildContactLabel(cleanIp);
+            ContactStatusRenderer.ContactItemView itemView = contactRenderer.create(label, e -> selectContact(cleanIp, false));
             contactsBox.getChildren().add(itemView.button());
             contactItems.put(cleanIp, itemView);
         });
+    }
+
+    private void ensureLocalProfileName() {
+        String savedName = localProfileController.getDisplayName();
+        if (savedName != null && !savedName.isBlank()) {
+            chatController.setLocalName(savedName);
+            return;
+        }
+
+        while (true) {
+            TextInputDialog dialog = new TextInputDialog("");
+            if (primaryStage != null) {
+                dialog.initOwner(primaryStage);
+            }
+            dialog.setTitle("Nombre");
+            dialog.setHeaderText("Ingresa tu nombre para el chat");
+            dialog.setContentText("Nombre:");
+
+            var result = dialog.showAndWait();
+            if (result.isPresent()) {
+                String name = result.get().trim();
+                if (!name.isBlank()) {
+                    localProfileController.saveDisplayName(name);
+                    chatController.setLocalName(name);
+                    return;
+                }
+                Alert alert = new Alert(Alert.AlertType.WARNING);
+                if (primaryStage != null) {
+                    alert.initOwner(primaryStage);
+                }
+                alert.setTitle("Nombre requerido");
+                alert.setHeaderText("El nombre no puede estar vacío");
+                alert.setContentText("Ingresa un nombre para continuar.");
+                alert.showAndWait();
+                continue;
+            }
+
+            String fallback = "Usuario";
+            localProfileController.saveDisplayName(fallback);
+            chatController.setLocalName(fallback);
+            return;
+        }
+    }
+
+    private String buildContactLabel(String ip) {
+        Contact contact = contactController.findByIp(ip);
+        String name = contact == null || contact.getName() == null ? "" : contact.getName().trim();
+        String cleanIp = ip == null ? "" : ip.trim();
+        if (name.isBlank() || cleanIp.isEmpty()) {
+            return cleanIp;
+        }
+        if (name.equalsIgnoreCase(cleanIp)) {
+            return cleanIp;
+        }
+        return name + " (" + cleanIp + ")";
     }
 
     @Override
@@ -447,28 +546,30 @@ public class ChatUIApp extends Application implements IchatIU {
 
     @Override
     public void onConnectionStateChanged(String remoteIp, boolean connected, String detail) {
-        if (connected) {
-            if (remoteIp != null && !remoteIp.isBlank()) {
-                selectedContactIp = remoteIp;
-                renderChatHistory(remoteIp);
+        Platform.runLater(() -> {
+            if (connected) {
+                if (remoteIp != null && !remoteIp.isBlank()) {
+                    selectedContactIp = remoteIp;
+                    renderChatHistory(remoteIp);
+                }
+                setContactOnline(remoteIp);
+                setPendingState(remoteIp, detail);
+                return;
             }
-            setContactOnline(remoteIp);
-            setPendingState(remoteIp, detail);
-            return;
-        }
-        setContactOffline(remoteIp);
-        statusValue.setText("Sin conexión");
-        addSystemMessage(detail);
+            setContactOffline(remoteIp);
+            statusValue.setText("Sin conexión");
+            addSystemMessage(detail);
+        });
     }
 
     @Override
     public void onChatMessage(String text, boolean self, String sentAt, String senderLabel) {
-        onChatMessage(selectedContactIp, text, self, sentAt, senderLabel);
+        onChatMessage(selectedContactIp, text, self, sentAt, senderLabel, null);
     }
 
-    public void onChatMessage(String contactIp, String text, boolean self, String sentAt, String senderLabel) {
+    public void onChatMessage(String contactIp, String text, boolean self, String sentAt, String senderLabel, String messageId) {
         if (contactIp == null || contactIp.isBlank()) {
-            addChatBubble(text, self, sentAt, senderLabel);
+            addChatBubble(contactIp, text, self, sentAt, senderLabel, messageId);
             return;
         }
         addOrSelectContact(contactIp);
@@ -480,7 +581,10 @@ public class ChatUIApp extends Application implements IchatIU {
         if (!contactIp.equals(selectedContactIp)) {
             return;
         }
-        addChatBubble(text, self, sentAt, senderLabel);
+        addChatBubble(contactIp, text, self, sentAt, senderLabel, messageId);
+        if (!self && messageId != null && !messageId.isBlank()) {
+            chatController.sendSeen(messageId, text);
+        }
     }
 
     @Override
@@ -534,9 +638,9 @@ public class ChatUIApp extends Application implements IchatIU {
         });
     }
 
-    private void addChatBubble(String text, boolean self, String timeText, String userLabel) {
+    private void addChatBubble(String contactIp, String text, boolean self, String timeText, String userLabel, String messageId) {
         Platform.runLater(() -> {
-            addChatBubbleNow(text, self, timeText, userLabel);
+            addChatBubbleNow(contactIp, text, self, timeText, userLabel, messageId);
         });
     }
 
@@ -560,7 +664,7 @@ public class ChatUIApp extends Application implements IchatIU {
         });
     }
 
-    private void addChatBubbleNow(String text, boolean self, String timeText, String userLabel) {
+    private void addChatBubbleNow(String contactIp, String text, boolean self, String timeText, String userLabel, String messageId) {
         Label textNode = new Label(text);
         textNode.getStyleClass().add("message-text");
         textNode.setWrapText(true);
@@ -568,15 +672,52 @@ public class ChatUIApp extends Application implements IchatIU {
         Label timeNode = new Label(timeText);
         timeNode.getStyleClass().add("message-time");
 
-        VBox bubble = new VBox(4, textNode, timeNode);
+        VBox bubble;
+        if (self) {
+            Label tickNode = new Label("✓");
+            tickNode.getStyleClass().add("message-tick");
+            HBox metaRow;
+            if (messageId != null && !messageId.isBlank()) {
+                Button menuButton = new Button("▾");
+                menuButton.getStyleClass().add("message-menu");
+                menuButton.setFocusTraversable(false);
+
+                ContextMenu menu = new ContextMenu();
+                MenuItem deleteItem = new MenuItem("Eliminar");
+                deleteItem.setOnAction(event -> chatController.deleteMessage(contactIp, messageId));
+                menu.getItems().add(deleteItem);
+
+                menuButton.setOnAction(event -> {
+                    if (!menu.isShowing()) {
+                        menu.show(menuButton, Side.BOTTOM, 0, 0);
+                    }
+                });
+                metaRow = new HBox(6, timeNode, tickNode, menuButton);
+            } else {
+                metaRow = new HBox(6, timeNode, tickNode);
+            }
+            metaRow.setAlignment(Pos.CENTER_RIGHT);
+            bubble = new VBox(4, textNode, metaRow);
+            if (contactIp != null && !contactIp.isBlank() && messageId != null && !messageId.isBlank()) {
+                sentMessageTicks
+                        .computeIfAbsent(contactIp, key -> new LinkedHashMap<>())
+                        .put(messageId, tickNode);
+            }
+        } else {
+            bubble = new VBox(4, textNode, timeNode);
+        }
         bubble.getStyleClass().add(self ? "bubble-self" : "bubble-peer");
         bubble.setMaxWidth(420);
 
         StackPane avatar = ChatIcon.create(userLabel, self);
         HBox row = self ? new HBox(8, bubble, avatar) : new HBox(8, avatar, bubble);
-        row.getStyleClass().add("message-row");
-        row.setAlignment(self ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT);
+        row.getStyleClass().addAll("message-row", self ? "message-row-self" : "message-row-peer");
         row.setMaxWidth(Double.MAX_VALUE);
+        if (contactIp != null && !contactIp.isBlank() && messageId != null && !messageId.isBlank()) {
+            messageRows
+                    .computeIfAbsent(contactIp, key -> new LinkedHashMap<>())
+                    .put(messageId, row);
+        }
 
         messages.getChildren().add(row);
         scrollPane.setVvalue(1.0);
@@ -619,19 +760,114 @@ public class ChatUIApp extends Application implements IchatIU {
         List<ChatMessage> history = chatController.getChatHistory(cleanIp);
         Platform.runLater(() -> {
             messages.getChildren().clear();
+            sentMessageTicks.remove(cleanIp);
+            messageRows.remove(cleanIp);
             for (ChatMessage chatMessage : history) {
                 String senderLabel = chatMessage.getSenderLabel();
                 if (senderLabel == null || senderLabel.isBlank()) {
                     senderLabel = cleanIp;
                 }
                 addChatBubbleNow(
+                        cleanIp,
                         chatMessage.getText(),
                         chatMessage.isSelfSent(),
                         formatHistoryTime(chatMessage.getSentAtMillis()),
-                        senderLabel
+                        senderLabel,
+                        chatMessage.getMessageId()
                 );
             }
         });
+    }
+
+    private void onMessageSeen(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        Platform.runLater(() -> {
+            Map<String, Label> ticks = sentMessageTicks.get(contactIp);
+            if (ticks == null) {
+                return;
+            }
+            Label tick = ticks.get(messageId);
+            if (tick != null) {
+                tick.setText("✓✓");
+                return;
+            }
+            Label last = null;
+            for (Label value : ticks.values()) {
+                last = value;
+            }
+            if (last != null) {
+                last.setText("✓✓");
+            }
+        });
+    }
+
+    private void onMessageDeleted(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        Platform.runLater(() -> {
+            Map<String, HBox> rows = messageRows.get(contactIp);
+            if (rows == null) {
+                return;
+            }
+            HBox row = rows.remove(messageId);
+            if (row != null) {
+                messages.getChildren().remove(row);
+            }
+            Map<String, Label> ticks = sentMessageTicks.get(contactIp);
+            if (ticks != null) {
+                ticks.remove(messageId);
+            }
+        });
+    }
+
+    private void sendBuzz() {
+        String cleanIp = selectedContactIp == null ? "" : selectedContactIp.trim();
+        if (cleanIp.isEmpty()) {
+            addSystemMessage("Selecciona un contacto primero.");
+            return;
+        }
+        chatController.sendBuzz(cleanIp);
+    }
+
+    private void onBuzz(String contactIp) {
+        if (contactIp == null || contactIp.isBlank()) {
+            return;
+        }
+        Platform.runLater(() -> {
+            ContactStatusRenderer.ContactItemView itemView = contactItems.get(contactIp);
+            if (itemView != null) {
+                contactRenderer.renderBuzz(itemView, true);
+                PauseTransition previous = buzzTimers.get(contactIp);
+                if (previous != null) {
+                    previous.stop();
+                }
+                PauseTransition hide = new PauseTransition(Duration.seconds(2));
+                hide.setOnFinished(event -> contactRenderer.renderBuzz(itemView, false));
+                buzzTimers.put(contactIp, hide);
+                hide.play();
+            }
+            triggerBuzzShake();
+        });
+    }
+
+    private void triggerBuzzShake() {
+        if (scrollPane == null) {
+            return;
+        }
+        if (buzzAnimation != null) {
+            buzzAnimation.stop();
+        }
+        scrollPane.setTranslateX(0);
+        TranslateTransition transition = new TranslateTransition(Duration.millis(40), scrollPane);
+        transition.setByX(6);
+        transition.setAutoReverse(true);
+        transition.setCycleCount(50);
+        transition.setOnFinished(event -> scrollPane.setTranslateX(0));
+        buzzAnimation = transition;
+        transition.play();
     }
 
     private String formatHistoryTime(long millis) {

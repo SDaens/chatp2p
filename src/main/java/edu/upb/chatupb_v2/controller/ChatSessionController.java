@@ -1,17 +1,13 @@
 package edu.upb.chatupb_v2.controller;
 
-import edu.upb.chatupb_v2.model.BlacklistDao;
 import edu.upb.chatupb_v2.model.ChatMessage;
 import edu.upb.chatupb_v2.model.ChatMessageDao;
 import edu.upb.chatupb_v2.model.ChatTransport;
 import edu.upb.chatupb_v2.model.ChatTransportListener;
 import edu.upb.chatupb_v2.model.Contact;
 import edu.upb.chatupb_v2.model.ContactDao;
-import edu.upb.chatupb_v2.model.CussWords;
 import edu.upb.chatupb_v2.model.ProtocolMessage;
-import edu.upb.chatupb_v2.model.SingleDigitSumStrategy;
 import edu.upb.chatupb_v2.model.SocketChatTransport;
-import edu.upb.chatupb_v2.model.TextAnalysisStrategy;
 
 import java.io.IOException;
 import java.sql.SQLException;
@@ -20,7 +16,6 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -29,23 +24,22 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ChatSessionController extends ChatTransportListener {
 
     private static final int DEFAULT_PORT = 1900;
+    private static final String DEFAULT_LOCAL_NAME = "Usuario";
 
     private final ChatTransport transport;
-    private final BlacklistDao blacklistDao = new BlacklistDao();
     private final ContactDao contactDao = new ContactDao();
     private final ChatMessageDao chatMessageDao = new ChatMessageDao();
     private final String localUserId = UUID.randomUUID().toString();
-    private final String localName = "santiago d.";
+    private volatile String localName = DEFAULT_LOCAL_NAME;
     private final DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm");
     private final AtomicLong messageSeq = new AtomicLong(1);
-    private final TextAnalysisStrategy sumStrategy = new SingleDigitSumStrategy();
-    private final TextAnalysisStrategy cussWordsStrategy = new CussWords(Arrays.asList("miea", "pu", "caraj"));
     private final CopyOnWriteArrayList<ChatSessionObserver> sessionObservers = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<ConnectionRequestObserver> requestObservers = new CopyOnWriteArrayList<>();
     private IchatIU iChatIU;
 
     private volatile boolean invitationAccepted;
     private volatile String activeRemoteIp;
+    private volatile String lastOutboundIp;
 
     public ChatSessionController() {
         this(new SocketChatTransport(DEFAULT_PORT));
@@ -63,6 +57,13 @@ public class ChatSessionController extends ChatTransportListener {
 
     public void setIChatIU(IchatIU iChatIU) {
         this.iChatIU = iChatIU;
+    }
+
+    public void setLocalName(String localName) {
+        if (localName == null || localName.isBlank()) {
+            return;
+        }
+        this.localName = localName.trim();
     }
 
     public void start() {
@@ -90,6 +91,7 @@ public class ChatSessionController extends ChatTransportListener {
             publishSystemMessage("Ingresa una IP remota válida.");
             return;
         }
+        lastOutboundIp = cleanIp;
         saveContact(cleanIp);
         publishContactDiscovered(cleanIp);
         transport.connect(cleanIp);
@@ -100,21 +102,16 @@ public class ChatSessionController extends ChatTransportListener {
         if (cleanText.isEmpty()) {
             return false;
         }
-        String textoAnalizado = sumStrategy.transform(cleanText);
-        textoAnalizado = cussWordsStrategy.transform(textoAnalizado);
-        if (textoAnalizado == null || textoAnalizado.isBlank()) {
-            return false;
-        }
         if (!invitationAccepted) {
             publishSystemMessage("La conversación sigue pendiente. Espera a que acepten la invitación.");
-            return false;
         }
 
         String messageId = localUserId + "-" + messageSeq.getAndIncrement();
         long sentAtMillis = System.currentTimeMillis();
-        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.CHAT, localUserId, messageId, textoAnalizado, String.valueOf(sentAtMillis)));
-        publishChatMessage(activeRemoteIp, textoAnalizado, true, formatEpochMillis(sentAtMillis), localName);
-        persistChatMessage(activeRemoteIp, textoAnalizado, true, localName, sentAtMillis);
+        String senderLabel = resolveLocalName();
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.CHAT, localUserId, messageId, cleanText));
+        publishChatMessage(activeRemoteIp, cleanText, true, formatEpochMillis(sentAtMillis), senderLabel, messageId);
+        persistChatMessage(activeRemoteIp, messageId, cleanText, true, senderLabel, sentAtMillis);
         return true;
     }
 
@@ -179,17 +176,33 @@ public class ChatSessionController extends ChatTransportListener {
     public void onConnected(String remoteIp, String contextMessage) {
         activeRemoteIp = remoteIp;
         invitationAccepted = false;
-        saveContact(remoteIp);
-        publishContactDiscovered(remoteIp);
+        boolean knownContact = isKnownContactIp(remoteIp);
+        boolean initiated = contextMessage != null && contextMessage.startsWith("Conectado a ");
+        if (!initiated) {
+            initiated = remoteIp != null && remoteIp.equals(lastOutboundIp);
+        }
+        lastOutboundIp = null;
+        if (initiated) {
+            saveContact(remoteIp);
+            publishContactDiscovered(remoteIp);
+        } else if (knownContact) {
+            publishContactDiscovered(remoteIp);
+        }
         publishConnectionState(remoteIp, true, contextMessage);
-        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_BROADCAST, localUserId));
-        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, localName));
+        if (initiated) {
+            if (knownContact) {
+                invitationAccepted = true;
+                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_BROADCAST, localUserId));
+            }
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, resolveLocalName()));
+        }
     }
 
     @Override
     public void onDisconnected(String remoteIp, String reason) {
         invitationAccepted = false;
         activeRemoteIp = null;
+        lastOutboundIp = null;
         publishConnectionState(remoteIp, false, reason);
     }
 
@@ -210,6 +223,8 @@ public class ChatSessionController extends ChatTransportListener {
                 case REQUEST -> handleRequest(msg.param(0), msg.param(1));
                 case ACCEPT -> {
                     invitationAccepted = true;
+                    saveContact(activeRemoteIp, msg.param(1));
+                    publishContactDiscovered(activeRemoteIp);
                     publishSystemMessage("Conectado con " + msg.param(1));
                 }
                 case REJECT -> {
@@ -221,18 +236,27 @@ public class ChatSessionController extends ChatTransportListener {
                 case HELLO_ACCEPT -> publishSystemMessage("Handshake de hello confirmado.");
                 case HELLO_REJECT -> publishSystemMessage("Hello rechazado por contraparte.");
                 case CHAT -> {
-                    long sentAtMillis = msg.params().size() > 3 ? parseEpochMillis(msg.param(3)) : System.currentTimeMillis();
+                    long sentAtMillis = System.currentTimeMillis();
                     String sentAt = formatEpochMillis(sentAtMillis);
                     String remoteLabel = resolveRemoteLabel();
-                    publishChatMessage(activeRemoteIp, msg.param(2), false, sentAt, remoteLabel);
-                    persistChatMessage(activeRemoteIp, msg.param(2), false, remoteLabel, sentAtMillis);
+                    if (!invitationAccepted) {
+                        invitationAccepted = true;
+                        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, resolveLocalName()));
+                        publishSystemMessage("Conectado con " + remoteLabel);
+                    }
+                    publishChatMessage(activeRemoteIp, msg.param(2), false, sentAt, remoteLabel, msg.param(1));
+                    persistChatMessage(activeRemoteIp, msg.param(1), msg.param(2), false, remoteLabel, sentAtMillis);
                     sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.RECEIPT, msg.param(1)));
+                    sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, localUserId, msg.param(1), msg.param(2)));
                 }
-                case RECEIPT -> publishSystemMessage("Mensaje confirmado: " + msg.param(0));
-                case DELETE -> publishSystemMessage("Solicitud eliminar mensaje: " + msg.param(0));
-                case BUZZ -> publishSystemMessage("Zumbido recibido: " + msg.param(0));
+                case RECEIPT -> {
+                    publishSystemMessage("Mensaje confirmado: " + msg.param(0));
+                    publishMessageSeen(activeRemoteIp, msg.param(0));
+                }
+                case DELETE -> handleDeleteMessage(activeRemoteIp, msg.param(0));
+                case BUZZ -> publishBuzz(activeRemoteIp);
                 case PIN -> publishSystemMessage("Solicitud fijar mensaje: " + msg.param(0));
-                case SEEN -> publishSystemMessage("Visto por " + msg.param(0) + ": " + msg.param(2));
+                case SEEN -> publishMessageSeen(activeRemoteIp, msg.param(1));
                 case THEME -> publishSystemMessage("Cambio de tema recibido: " + msg.param(1));
                 case OUTLINE -> publishSystemMessage("Estoy offline. " + msg.param(0));
                 case SHARE -> handleSharedContact(msg.param(0), msg.param(1), msg.param(2));
@@ -243,17 +267,13 @@ public class ChatSessionController extends ChatTransportListener {
     }
 
     private void handleRequest(String requesterId, String requesterName) {
-        if (isRequesterBlocked(requesterId)) {
-            transport.disconnect();
-            publishSystemMessage("conexion rechazada automáticamente (usuario en lista negra).");
-            return;
-        }
-
         publishSystemMessage("Solicitud recibida de " + requesterName);
+        saveContact(activeRemoteIp, requesterName);
+        publishContactDiscovered(activeRemoteIp);
 
         if (isKnownContactIp(activeRemoteIp)) {
             invitationAccepted = true;
-            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, localName));
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, resolveLocalName()));
             publishSystemMessage("Solicitud autoaceptada para contacto guardado: " + requesterName + ".");
             return;
         }
@@ -264,13 +284,12 @@ public class ChatSessionController extends ChatTransportListener {
                 requesterName,
                 () -> {
                     invitationAccepted = true;
-                    sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, localName));
+                    sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, resolveLocalName()));
                     publishSystemMessage("Aceptaste la solicitud de " + requesterName + ".");
                 },
                 () -> {
                     invitationAccepted = false;
                     sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REJECT));
-                    addToBlacklist(requesterId, requesterName, activeRemoteIp);
                     publishSystemMessage("Rechazaste la solicitud de " + requesterName + ".");
                 }
         );
@@ -287,30 +306,28 @@ public class ChatSessionController extends ChatTransportListener {
         }
     }
 
-    private boolean isRequesterBlocked(String requesterId) {
-        try {
-            return blacklistDao.isBlocked(requesterId);
-        } catch (SQLException ex) {
-            publishSystemMessage("no se pudo verificar la blacklist: " + ex.getMessage());
-            return false;
-        }
-    }
-
-    private void addToBlacklist(String requesterId, String requesterName, String remoteIp) {
-        try {
-            blacklistDao.addBlockedRequester(requesterId, requesterName, remoteIp);
-        } catch (SQLException ex) {
-            publishSystemMessage("no se pudo guardar en la blacklist: " + ex.getMessage());
-        }
-    }
-
     private void saveContact(String ip) {
+        saveContact(ip, ip);
+    }
+
+    private void saveContact(String ip, String name) {
         String cleanIp = ip == null ? "" : ip.trim();
         if (cleanIp.isEmpty()) {
             return;
         }
+        String cleanName = name == null ? "" : name.trim();
+        if (cleanName.isEmpty()) {
+            cleanName = cleanIp;
+        }
         try {
-            Contact contact = Contact.builder().code(cleanIp).name(cleanIp).ip(cleanIp).build();
+            Contact existing = contactDao.findByIp(cleanIp);
+            String finalName = cleanName;
+            if (existing != null && existing.getName() != null && !existing.getName().isBlank()) {
+                if (finalName.equalsIgnoreCase(cleanIp) || finalName.isBlank()) {
+                    finalName = existing.getName().trim();
+                }
+            }
+            Contact contact = Contact.builder().code(cleanIp).name(finalName).ip(cleanIp).build();
             contactDao.saveOrUpdateByIp(contact);
         } catch (Exception ex) {
             publishSystemMessage("no se pudo guardar el contacto " + cleanIp + ": " + ex.getMessage());
@@ -388,6 +405,13 @@ public class ChatSessionController extends ChatTransportListener {
         return activeRemoteIp;
     }
 
+    private String resolveLocalName() {
+        if (localName == null || localName.isBlank()) {
+            return DEFAULT_LOCAL_NAME;
+        }
+        return localName.trim();
+    }
+
     private void sendProtocol(ProtocolMessage message) {
         if (!transport.isConnected()) {
             publishSystemMessage("Sin conexión activa. Usa Conectar o espera conexión entrante.");
@@ -398,6 +422,21 @@ public class ChatSessionController extends ChatTransportListener {
         } catch (IOException ex) {
             publishSystemMessage("Error enviando protocolo " + message.code().value() + ": " + ex.getMessage());
         }
+    }
+
+    public void sendSeen(String messageId, String messageText) {
+        if (messageId == null || messageId.isBlank()) {
+            return;
+        }
+        String safeText = messageText == null ? "" : messageText;
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, localUserId, messageId, safeText));
+    }
+
+    public void sendBuzz(String contactIp) {
+        if (contactIp == null || contactIp.isBlank()) {
+            return;
+        }
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.BUZZ, localUserId));
     }
 
     private void publishContactDiscovered(String ip) {
@@ -426,15 +465,63 @@ public class ChatSessionController extends ChatTransportListener {
 
     private void persistChatMessage(String contactIp, String text, boolean selfSent, String senderLabel, long sentAtMillis) {
         try {
-            chatMessageDao.save(contactIp, text, selfSent, senderLabel, sentAtMillis);
+            chatMessageDao.save(contactIp, null, text, selfSent, senderLabel, sentAtMillis);
         } catch (SQLException ex) {
             publishSystemMessage("no se pudo persistir mensaje: " + ex.getMessage());
         }
     }
 
-    private void publishChatMessage(String contactIp, String text, boolean self, String sentAt, String senderLabel) {
+    private void persistChatMessage(String contactIp, String messageId, String text, boolean selfSent, String senderLabel, long sentAtMillis) {
+        try {
+            chatMessageDao.save(contactIp, messageId, text, selfSent, senderLabel, sentAtMillis);
+        } catch (SQLException ex) {
+            publishSystemMessage("no se pudo persistir mensaje: " + ex.getMessage());
+        }
+    }
+
+    public void deleteMessage(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        deleteMessageLocal(contactIp, messageId);
+        publishMessageDeleted(contactIp, messageId);
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.DELETE, messageId));
+    }
+
+    private void handleDeleteMessage(String contactIp, String messageId) {
+        deleteMessageLocal(contactIp, messageId);
+        publishMessageDeleted(contactIp, messageId);
+    }
+
+    private void deleteMessageLocal(String contactIp, String messageId) {
+        try {
+            chatMessageDao.deleteByMessageId(contactIp, messageId);
+        } catch (SQLException ex) {
+            publishSystemMessage("no se pudo borrar mensaje: " + ex.getMessage());
+        }
+    }
+
+    private void publishChatMessage(String contactIp, String text, boolean self, String sentAt, String senderLabel, String messageId) {
         for (ChatSessionObserver observer : sessionObservers) {
-            observer.onChatMessage(contactIp, text, self, sentAt, senderLabel);
+            observer.onChatMessage(contactIp, text, self, sentAt, senderLabel, messageId);
+        }
+    }
+
+    private void publishMessageSeen(String contactIp, String messageId) {
+        for (ChatSessionObserver observer : sessionObservers) {
+            observer.onMessageSeen(contactIp, messageId);
+        }
+    }
+
+    private void publishMessageDeleted(String contactIp, String messageId) {
+        for (ChatSessionObserver observer : sessionObservers) {
+            observer.onMessageDeleted(contactIp, messageId);
+        }
+    }
+
+    private void publishBuzz(String contactIp) {
+        for (ChatSessionObserver observer : sessionObservers) {
+            observer.onBuzz(contactIp);
         }
     }
 
