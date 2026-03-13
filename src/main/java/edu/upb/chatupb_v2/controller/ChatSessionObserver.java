@@ -29,4 +29,7 @@ public abstract class ChatSessionObserver {
 
     public void onBuzz(String contactIp) {
     }
+
+    public void onPresenceChanged(String contactIp, boolean online) {
+    }
 }

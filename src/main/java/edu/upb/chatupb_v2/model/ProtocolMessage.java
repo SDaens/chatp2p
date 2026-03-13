@@ -24,7 +24,8 @@ public abstract class ProtocolMessage {
         SEEN("012", 3, "ID_user", "ID_run", "Mensaje"),
         THEME("013", 2, "ID_user", "ID_tema"),
         OUTLINE("0018", 1, "ID_user"),
-        SHARE("020", 3, "ID_user", "Nombre", "IP");
+        SHARE("020", 3, "ID_user", "Nombre", "IP"),
+        IMAGE("021", 3, "ID_user", "ID_imagen", "Imagen_base64");
 
         private final String value;
         private final int paramCount;
@@ -103,6 +104,7 @@ public abstract class ProtocolMessage {
             case "013" -> parseTheme(split);
             case "0018" -> parseOutline(split);
             case "020" -> parseShare(split);
+            case "021" -> parseImage(split);
             default -> throw new IllegalArgumentException("Unknown protocol code: " + code);
         };
     }
@@ -147,6 +149,7 @@ public abstract class ProtocolMessage {
             case THEME -> new ThemeMessage(parts.get(0), parts.get(1));
             case OUTLINE -> new OutlineMessage(parts.get(0));
             case SHARE -> new ShareMessage(parts.get(0), parts.get(1), parts.get(2));
+            case IMAGE -> new ImageMessage(parts.get(0), parts.get(1), parts.get(2));
         };
     }
 
@@ -226,6 +229,10 @@ public abstract class ProtocolMessage {
 
     private static ProtocolMessage parseShare(String[] split) {
         return of(Code.SHARE, extractParts(split));
+    }
+
+    private static ProtocolMessage parseImage(String[] split) {
+        return of(Code.IMAGE, extractParts(split));
     }
 
     public static final class RequestMessage extends ProtocolMessage {
@@ -390,6 +397,17 @@ public abstract class ProtocolMessage {
         @Override
         public Code code() {
             return Code.SHARE;
+        }
+    }
+
+    public static final class ImageMessage extends ProtocolMessage {
+        public ImageMessage(String userId, String imageId, String base64) {
+            super(List.of(userId, imageId, base64));
+        }
+
+        @Override
+        public Code code() {
+            return Code.IMAGE;
         }
     }
 }

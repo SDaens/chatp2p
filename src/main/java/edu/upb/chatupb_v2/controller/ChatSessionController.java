@@ -16,7 +16,12 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Base64;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
@@ -35,11 +40,17 @@ public class ChatSessionController extends ChatTransportListener {
     private final AtomicLong messageSeq = new AtomicLong(1);
     private final CopyOnWriteArrayList<ChatSessionObserver> sessionObservers = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<ConnectionRequestObserver> requestObservers = new CopyOnWriteArrayList<>();
+    private final EnumMap<ProtocolMessage.Code, ProtocolCommand> protocolCommands = new EnumMap<>(ProtocolMessage.Code.class);
+    private static final Pattern CONNECT_ERROR_PATTERN = Pattern.compile("^No se pudo conectar a\\s+([^:]+):\\d+\\s+-\\s+.*");
     private IchatIU iChatIU;
 
     private volatile boolean invitationAccepted;
     private volatile String activeRemoteIp;
     private volatile String lastOutboundIp;
+    private final Object probeLock = new Object();
+    private final ArrayDeque<String> probeQueue = new ArrayDeque<>();
+    private volatile boolean probing;
+    private volatile String probeIp;
 
     public ChatSessionController() {
         this(new SocketChatTransport(DEFAULT_PORT));
@@ -53,6 +64,7 @@ public class ChatSessionController extends ChatTransportListener {
     public ChatSessionController(ChatTransport transport) {
         this.transport = transport;
         this.transport.setListener(this);
+        registerProtocolCommands();
     }
 
     public void setIChatIU(IchatIU iChatIU) {
@@ -91,6 +103,7 @@ public class ChatSessionController extends ChatTransportListener {
             publishSystemMessage("Ingresa una IP remota válida.");
             return;
         }
+        cancelProbe();
         lastOutboundIp = cleanIp;
         saveContact(cleanIp);
         publishContactDiscovered(cleanIp);
@@ -113,6 +126,32 @@ public class ChatSessionController extends ChatTransportListener {
         publishChatMessage(activeRemoteIp, cleanText, true, formatEpochMillis(sentAtMillis), senderLabel, messageId);
         persistChatMessage(activeRemoteIp, messageId, cleanText, true, senderLabel, sentAtMillis);
         return true;
+    }
+
+    public boolean sendImageBase64(String base64Image) {
+        String cleanBase64 = base64Image == null ? "" : base64Image.trim();
+        if (cleanBase64.isEmpty()) {
+            return false;
+        }
+        if (!invitationAccepted) {
+            publishSystemMessage("La conversación sigue pendiente. Espera a que acepten la invitación.");
+        }
+
+        String messageId = localUserId + "-img-" + messageSeq.getAndIncrement();
+        long sentAtMillis = System.currentTimeMillis();
+        String senderLabel = resolveLocalName();
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.IMAGE, localUserId, messageId, cleanBase64));
+        publishChatMessage(activeRemoteIp, cleanBase64, true, formatEpochMillis(sentAtMillis), senderLabel, messageId);
+        persistChatMessage(activeRemoteIp, messageId, cleanBase64, true, senderLabel, sentAtMillis);
+        return true;
+    }
+
+    public boolean sendImageBytes(byte[] imageBytes) {
+        if (imageBytes == null || imageBytes.length == 0) {
+            return false;
+        }
+        String base64 = Base64.getEncoder().encodeToString(imageBytes);
+        return sendImageBase64(base64);
     }
 
     public void disconnect() {
@@ -174,6 +213,11 @@ public class ChatSessionController extends ChatTransportListener {
 
     @Override
     public void onConnected(String remoteIp, String contextMessage) {
+        if (isProbeConnection(remoteIp)) {
+            publishPresence(remoteIp, true);
+            scheduleProbeDisconnect();
+            return;
+        }
         activeRemoteIp = remoteIp;
         invitationAccepted = false;
         boolean knownContact = isKnownContactIp(remoteIp);
@@ -189,6 +233,7 @@ public class ChatSessionController extends ChatTransportListener {
             publishContactDiscovered(remoteIp);
         }
         publishConnectionState(remoteIp, true, contextMessage);
+        publishPresence(remoteIp, true);
         if (initiated) {
             if (knownContact) {
                 invitationAccepted = true;
@@ -200,10 +245,15 @@ public class ChatSessionController extends ChatTransportListener {
 
     @Override
     public void onDisconnected(String remoteIp, String reason) {
+        if (isProbeConnection(remoteIp)) {
+            startNextProbe();
+            return;
+        }
         invitationAccepted = false;
         activeRemoteIp = null;
         lastOutboundIp = null;
         publishConnectionState(remoteIp, false, reason);
+        publishPresence(remoteIp, false);
     }
 
     @Override
@@ -213,65 +263,201 @@ public class ChatSessionController extends ChatTransportListener {
 
     @Override
     public void onError(String message, Exception exception) {
+        if (probing) {
+            String ip = extractConnectErrorIp(message);
+            if (ip != null && ip.equals(probeIp)) {
+                publishPresence(ip, false);
+                startNextProbe();
+                return;
+            }
+        }
         publishSystemMessage(message);
     }
 
     private void handleProtocolLine(String line) {
         try {
             ProtocolMessage msg = ProtocolMessage.parse(line);
-            switch (msg.code()) {
-                case REQUEST -> handleRequest(msg.param(0), msg.param(1));
-                case ACCEPT -> {
-                    invitationAccepted = true;
-                    saveContact(activeRemoteIp, msg.param(1));
-                    publishContactDiscovered(activeRemoteIp);
-                    publishSystemMessage("Conectado con " + msg.param(1));
-                }
-                case REJECT -> {
-                    invitationAccepted = false;
-                    publishSystemMessage("La contraparte rechazó la solicitud.");
-                    transport.disconnect();
-                }
-                case HELLO_BROADCAST -> sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_ACCEPT, localUserId));
-                case HELLO_ACCEPT -> publishSystemMessage("Handshake de hello confirmado.");
-                case HELLO_REJECT -> publishSystemMessage("Hello rechazado por contraparte.");
-                case CHAT -> {
-                    long sentAtMillis = System.currentTimeMillis();
-                    String sentAt = formatEpochMillis(sentAtMillis);
-                    String remoteLabel = resolveRemoteLabel();
-                    if (!invitationAccepted) {
-                        invitationAccepted = true;
-                        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, resolveLocalName()));
-                        publishSystemMessage("Conectado con " + remoteLabel);
-                    }
-                    publishChatMessage(activeRemoteIp, msg.param(2), false, sentAt, remoteLabel, msg.param(1));
-                    persistChatMessage(activeRemoteIp, msg.param(1), msg.param(2), false, remoteLabel, sentAtMillis);
-                    sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.RECEIPT, msg.param(1)));
-                    sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, localUserId, msg.param(1), msg.param(2)));
-                }
-                case RECEIPT -> {
-                    publishSystemMessage("Mensaje confirmado: " + msg.param(0));
-                    publishMessageSeen(activeRemoteIp, msg.param(0));
-                }
-                case DELETE -> handleDeleteMessage(activeRemoteIp, msg.param(0));
-                case BUZZ -> publishBuzz(activeRemoteIp);
-                case PIN -> publishSystemMessage("Solicitud fijar mensaje: " + msg.param(0));
-                case SEEN -> publishMessageSeen(activeRemoteIp, msg.param(1));
-                case THEME -> publishSystemMessage("Cambio de tema recibido: " + msg.param(1));
-                case OUTLINE -> publishSystemMessage("Estoy offline. " + msg.param(0));
-                case SHARE -> handleSharedContact(msg.param(0), msg.param(1), msg.param(2));
+            ProtocolCommand command = protocolCommands.get(msg.code());
+            if (command == null) {
+                publishSystemMessage("Comando de protocolo no registrado: " + msg.code().value());
+                return;
             }
+            command.execute(msg);
         } catch (IllegalArgumentException ex) {
             publishSystemMessage("Fragmento no reconocido: " + line);
         }
     }
 
+    private void registerProtocolCommands() {
+        protocolCommands.put(ProtocolMessage.Code.REQUEST, new RequestCommand());
+        protocolCommands.put(ProtocolMessage.Code.ACCEPT, new AcceptCommand());
+        protocolCommands.put(ProtocolMessage.Code.REJECT, new RejectCommand());
+        protocolCommands.put(ProtocolMessage.Code.HELLO_BROADCAST, new HelloBroadcastCommand());
+        protocolCommands.put(ProtocolMessage.Code.HELLO_ACCEPT, new HelloAcceptCommand());
+        protocolCommands.put(ProtocolMessage.Code.HELLO_REJECT, new HelloRejectCommand());
+        protocolCommands.put(ProtocolMessage.Code.CHAT, new ChatCommand());
+        protocolCommands.put(ProtocolMessage.Code.RECEIPT, new ReceiptCommand());
+        protocolCommands.put(ProtocolMessage.Code.DELETE, new DeleteCommand());
+        protocolCommands.put(ProtocolMessage.Code.BUZZ, new BuzzCommand());
+        protocolCommands.put(ProtocolMessage.Code.PIN, new PinCommand());
+        protocolCommands.put(ProtocolMessage.Code.SEEN, new SeenCommand());
+        protocolCommands.put(ProtocolMessage.Code.THEME, new ThemeCommand());
+        protocolCommands.put(ProtocolMessage.Code.OUTLINE, new OutlineCommand());
+        protocolCommands.put(ProtocolMessage.Code.SHARE, new ShareCommand());
+        protocolCommands.put(ProtocolMessage.Code.IMAGE, new ImageCommand());
+    }
+
+    private interface ProtocolCommand {
+        void execute(ProtocolMessage message);
+    }
+
+    private final class RequestCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            handleRequest(message.param(0), message.param(1));
+        }
+    }
+
+    private final class AcceptCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            invitationAccepted = true;
+            saveContact(activeRemoteIp, message.param(1));
+            publishContactDiscovered(activeRemoteIp);
+            publishSystemMessage("Conectado con " + message.param(1));
+        }
+    }
+
+    private final class RejectCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            invitationAccepted = false;
+            publishSystemMessage("La contraparte rechazó la solicitud.");
+            transport.disconnect();
+        }
+    }
+
+    private final class HelloBroadcastCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_ACCEPT, localUserId));
+        }
+    }
+
+    private final class HelloAcceptCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            publishSystemMessage("Handshake de hello confirmado.");
+        }
+    }
+
+    private final class HelloRejectCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            publishSystemMessage("Hello rechazado por contraparte.");
+        }
+    }
+
+    private final class ChatCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            long sentAtMillis = System.currentTimeMillis();
+            String sentAt = formatEpochMillis(sentAtMillis);
+            String remoteLabel = resolveRemoteLabel();
+            if (!invitationAccepted) {
+                invitationAccepted = true;
+                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, resolveLocalName()));
+                publishSystemMessage("Conectado con " + remoteLabel);
+            }
+            publishChatMessage(activeRemoteIp, message.param(2), false, sentAt, remoteLabel, message.param(1));
+            persistChatMessage(activeRemoteIp, message.param(1), message.param(2), false, remoteLabel, sentAtMillis);
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.RECEIPT, message.param(1)));
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, localUserId, message.param(1), message.param(2)));
+        }
+    }
+
+    private final class ImageCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            long sentAtMillis = System.currentTimeMillis();
+            String sentAt = formatEpochMillis(sentAtMillis);
+            String remoteLabel = resolveRemoteLabel();
+            if (!invitationAccepted) {
+                invitationAccepted = true;
+                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, resolveLocalName()));
+                publishSystemMessage("Conectado con " + remoteLabel);
+            }
+            publishChatMessage(activeRemoteIp, message.param(2), false, sentAt, remoteLabel, message.param(1));
+            persistChatMessage(activeRemoteIp, message.param(1), message.param(2), false, remoteLabel, sentAtMillis);
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.RECEIPT, message.param(1)));
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, localUserId, message.param(1), message.param(2)));
+        }
+    }
+
+    private final class ReceiptCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            publishSystemMessage("Mensaje confirmado: " + message.param(0));
+            publishMessageSeen(activeRemoteIp, message.param(0));
+        }
+    }
+
+    private final class DeleteCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            handleDeleteMessage(activeRemoteIp, message.param(0));
+        }
+    }
+
+    private final class BuzzCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            publishBuzz(activeRemoteIp);
+        }
+    }
+
+    private final class PinCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            publishSystemMessage("Solicitud fijar mensaje: " + message.param(0));
+        }
+    }
+
+    private final class SeenCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            publishMessageSeen(activeRemoteIp, message.param(1));
+        }
+    }
+
+    private final class ThemeCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            publishSystemMessage("Cambio de tema recibido: " + message.param(1));
+        }
+    }
+
+    private final class OutlineCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            publishSystemMessage("Estoy offline. " + message.param(0));
+        }
+    }
+
+    private final class ShareCommand implements ProtocolCommand {
+        @Override
+        public void execute(ProtocolMessage message) {
+            handleSharedContact(message.param(0), message.param(1), message.param(2));
+        }
+    }
+
     private void handleRequest(String requesterId, String requesterName) {
         publishSystemMessage("Solicitud recibida de " + requesterName);
+        boolean knownBefore = isKnownContactIp(activeRemoteIp);
         saveContact(activeRemoteIp, requesterName);
         publishContactDiscovered(activeRemoteIp);
 
-        if (isKnownContactIp(activeRemoteIp)) {
+        if (knownBefore) {
             invitationAccepted = true;
             sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.ACCEPT, localUserId, resolveLocalName()));
             publishSystemMessage("Solicitud autoaceptada para contacto guardado: " + requesterName + ".");
@@ -451,6 +637,12 @@ public class ChatSessionController extends ChatTransportListener {
         }
     }
 
+    private void publishPresence(String remoteIp, boolean online) {
+        for (ChatSessionObserver observer : sessionObservers) {
+            observer.onPresenceChanged(remoteIp, online);
+        }
+    }
+
     private boolean isKnownContactIp(String remoteIp) {
         if (remoteIp == null || remoteIp.isBlank()) {
             return false;
@@ -529,5 +721,86 @@ public class ChatSessionController extends ChatTransportListener {
         for (ChatSessionObserver observer : sessionObservers) {
             observer.onSystemMessage(text);
         }
+    }
+
+    public void probeContacts(List<String> contactIps) {
+        if (contactIps == null || contactIps.isEmpty()) {
+            return;
+        }
+        if (transport.isConnected()) {
+            return;
+        }
+        synchronized (probeLock) {
+            probeQueue.clear();
+            for (String rawIp : contactIps) {
+                String ip = rawIp == null ? "" : rawIp.trim();
+                if (ip.isEmpty()) {
+                    continue;
+                }
+                if (probeQueue.contains(ip)) {
+                    continue;
+                }
+                probeQueue.add(ip);
+            }
+            if (probeQueue.isEmpty()) {
+                probing = false;
+                probeIp = null;
+                return;
+            }
+            probing = true;
+        }
+        startNextProbe();
+    }
+
+    private void startNextProbe() {
+        String next;
+        synchronized (probeLock) {
+            if (!probing) {
+                return;
+            }
+            next = probeQueue.poll();
+            if (next == null) {
+                probing = false;
+                probeIp = null;
+                return;
+            }
+            probeIp = next;
+        }
+        transport.connect(next);
+    }
+
+    private void scheduleProbeDisconnect() {
+        Thread disconnect = new Thread(() -> {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ignored) {
+            }
+            transport.disconnect();
+        }, "probe-disconnect");
+        disconnect.setDaemon(true);
+        disconnect.start();
+    }
+
+    private boolean isProbeConnection(String remoteIp) {
+        return probing && probeIp != null && probeIp.equals(remoteIp);
+    }
+
+    private void cancelProbe() {
+        synchronized (probeLock) {
+            probing = false;
+            probeIp = null;
+            probeQueue.clear();
+        }
+    }
+
+    private String extractConnectErrorIp(String message) {
+        if (message == null || message.isBlank()) {
+            return null;
+        }
+        Matcher matcher = CONNECT_ERROR_PATTERN.matcher(message.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+        return matcher.group(1);
     }
 }

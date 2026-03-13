@@ -26,6 +26,8 @@ import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Alert;
 import javafx.scene.control.TextInputDialog;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -35,10 +37,13 @@ import javafx.scene.layout.VBox;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.geometry.Side;
+import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
+import java.io.ByteArrayInputStream;
+import java.nio.file.Files;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -56,10 +61,12 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Base64;
 import javafx.util.Duration;
 
 public class ChatUIApp extends Application implements IchatIU {
     private static final Pattern CONNECT_ERROR_PATTERN = Pattern.compile("^No se pudo conectar a\\s+([^:]+):\\d+\\s+-\\s+.*");
+    private static final int IMAGE_MAX_WIDTH = 260;
 
     private final ChatSessionController chatController = new ChatSessionController();
     private final ContactController contactController = new ContactController(this);
@@ -112,6 +119,7 @@ public class ChatUIApp extends Application implements IchatIU {
         chatController.setIChatIU(this);
         ensureLocalProfileName();
         chatController.start();
+        probeSavedContacts();
     }
 
     @Override
@@ -160,6 +168,11 @@ public class ChatUIApp extends Application implements IchatIU {
             public void onBuzz(String contactIp) {
                 ChatUIApp.this.onBuzz(contactIp);
             }
+
+            @Override
+            public void onPresenceChanged(String contactIp, boolean online) {
+                ChatUIApp.this.onPresenceChanged(contactIp, online);
+            }
         });
 
         chatController.addConnectionRequestObserver(new ConnectionRequestObserver() {
@@ -174,6 +187,17 @@ public class ChatUIApp extends Application implements IchatIU {
         for (Contact contact : contactController.findAll()) {
             onContactDiscovered(contact.getIp());
         }
+    }
+
+    private void probeSavedContacts() {
+        List<String> ips = new ArrayList<>();
+        for (Contact contact : contactController.findAll()) {
+            String ip = contact.getIp() == null ? "" : contact.getIp().trim();
+            if (!ip.isEmpty()) {
+                ips.add(ip);
+            }
+        }
+        chatController.probeContacts(ips);
     }
 
     private VBox buildHeader() {
@@ -277,7 +301,7 @@ public class ChatUIApp extends Application implements IchatIU {
 
         Button attach = new Button("Adjuntar imagen");
         attach.getStyleClass().add("secondary-button");
-        attach.setOnAction(e -> addSystemMessage("Adjuntos aún no implementados."));
+        attach.setOnAction(e -> attachImage());
 
         Button shareContact = new Button("Compartir contacto");
         shareContact.getStyleClass().add("secondary-button");
@@ -311,6 +335,27 @@ public class ChatUIApp extends Application implements IchatIU {
         boolean sent = chatController.sendChatMessage(text);
         if (sent) {
             input.clear();
+        }
+    }
+
+    private void attachImage() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Selecciona una imagen");
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("Imágenes", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp")
+        );
+        java.io.File file = chooser.showOpenDialog(primaryStage);
+        if (file == null) {
+            return;
+        }
+        try {
+            byte[] bytes = Files.readAllBytes(file.toPath());
+            boolean sent = chatController.sendImageBytes(bytes);
+            if (!sent) {
+                addSystemMessage("No se pudo enviar la imagen.");
+            }
+        } catch (Exception ex) {
+            addSystemMessage("Error leyendo imagen: " + ex.getMessage());
         }
     }
 
@@ -548,18 +593,28 @@ public class ChatUIApp extends Application implements IchatIU {
     public void onConnectionStateChanged(String remoteIp, boolean connected, String detail) {
         Platform.runLater(() -> {
             if (connected) {
-                if (remoteIp != null && !remoteIp.isBlank()) {
+                boolean initiated = detail != null && detail.startsWith("Conectado a ");
+                boolean shouldSelect = initiated || (selectedContactIp != null && selectedContactIp.equals(remoteIp));
+                if (shouldSelect && remoteIp != null && !remoteIp.isBlank()) {
                     selectedContactIp = remoteIp;
                     renderChatHistory(remoteIp);
+                    setPendingState(remoteIp, detail);
+                } else {
+                    addSystemMessage(detail);
                 }
-                setContactOnline(remoteIp);
-                setPendingState(remoteIp, detail);
                 return;
             }
-            setContactOffline(remoteIp);
             statusValue.setText("Sin conexión");
             addSystemMessage(detail);
         });
+    }
+
+    private void onPresenceChanged(String contactIp, boolean online) {
+        if (online) {
+            setContactOnline(contactIp);
+        } else {
+            setContactOffline(contactIp);
+        }
     }
 
     @Override
@@ -665,9 +720,7 @@ public class ChatUIApp extends Application implements IchatIU {
     }
 
     private void addChatBubbleNow(String contactIp, String text, boolean self, String timeText, String userLabel, String messageId) {
-        Label textNode = new Label(text);
-        textNode.getStyleClass().add("message-text");
-        textNode.setWrapText(true);
+        javafx.scene.Node contentNode = buildMessageContentNode(text, messageId);
 
         Label timeNode = new Label(timeText);
         timeNode.getStyleClass().add("message-time");
@@ -697,14 +750,14 @@ public class ChatUIApp extends Application implements IchatIU {
                 metaRow = new HBox(6, timeNode, tickNode);
             }
             metaRow.setAlignment(Pos.CENTER_RIGHT);
-            bubble = new VBox(4, textNode, metaRow);
+            bubble = new VBox(4, contentNode, metaRow);
             if (contactIp != null && !contactIp.isBlank() && messageId != null && !messageId.isBlank()) {
                 sentMessageTicks
                         .computeIfAbsent(contactIp, key -> new LinkedHashMap<>())
                         .put(messageId, tickNode);
             }
         } else {
-            bubble = new VBox(4, textNode, timeNode);
+            bubble = new VBox(4, contentNode, timeNode);
         }
         bubble.getStyleClass().add(self ? "bubble-self" : "bubble-peer");
         bubble.setMaxWidth(420);
@@ -721,6 +774,45 @@ public class ChatUIApp extends Application implements IchatIU {
 
         messages.getChildren().add(row);
         scrollPane.setVvalue(1.0);
+    }
+
+    private javafx.scene.Node buildMessageContentNode(String text, String messageId) {
+        if (text != null && !text.isBlank() && (isImageMessage(messageId) || looksLikeBase64(text))) {
+            try {
+                String normalized = text.replaceAll("\\s", "");
+                byte[] bytes = Base64.getDecoder().decode(normalized);
+                Image image = new Image(new ByteArrayInputStream(bytes), IMAGE_MAX_WIDTH, 0, true, true);
+                if (!image.isError() && image.getWidth() > 0) {
+                    ImageView imageView = new ImageView(image);
+                    imageView.setPreserveRatio(true);
+                    imageView.setSmooth(true);
+                    imageView.setFitWidth(IMAGE_MAX_WIDTH);
+                    return imageView;
+                }
+            } catch (Exception ex) {
+                // fallback below
+            }
+        }
+
+        Label textNode = new Label(text == null ? "" : text);
+        textNode.getStyleClass().add("message-text");
+        textNode.setWrapText(true);
+        return textNode;
+    }
+
+    private boolean isImageMessage(String messageId) {
+        return messageId != null && messageId.contains("-img-");
+    }
+
+    private boolean looksLikeBase64(String text) {
+        String normalized = text == null ? "" : text.replaceAll("\\s", "");
+        if (normalized.length() < 120) {
+            return false;
+        }
+        if (normalized.length() % 4 != 0) {
+            return false;
+        }
+        return normalized.matches("^[A-Za-z0-9+/=]+$");
     }
 
     private void selectContact(String ip, boolean connect) {
