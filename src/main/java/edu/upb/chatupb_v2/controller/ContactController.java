@@ -1,19 +1,21 @@
 package edu.upb.chatupb_v2.controller;
 
 import edu.upb.chatupb_v2.model.Contact;
+import edu.upb.chatupb_v2.model.CacheContactDao;
 import edu.upb.chatupb_v2.model.ContactDao;
+import edu.upb.chatupb_v2.model.IContactDao;
 
 import java.util.Collections;
 import java.util.List;
 
 public class ContactController {
 
-    private final ContactDao contactDao;
+    private final IContactDao contactDao;
     private final IchatIU iChatIU;
 
     public ContactController(IchatIU iChatIU) {
         this.iChatIU = iChatIU;
-        this.contactDao = new ContactDao();
+        this.contactDao = new CacheContactDao(new ContactDao());
     }
 
     public List<Contact> findAll() {

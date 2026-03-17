@@ -10,7 +10,7 @@ import java.sql.SQLException;
 import java.util.List;
 
 @Slf4j
-public class ContactDao {
+public class ContactDao implements IContactDao {
 
 
     private DaoHelper<Contact> helper;

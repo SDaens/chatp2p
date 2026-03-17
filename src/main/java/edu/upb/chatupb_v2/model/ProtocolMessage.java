@@ -17,11 +17,11 @@ public abstract class ProtocolMessage {
         HELLO_ACCEPT("005", 1, "ID"),
         HELLO_REJECT("006", 0),
         CHAT("007", 3, "ID_user", "ID_mensaje", "Mensaje"),
-        RECEIPT("008", 1, "ID_mensaje"),
+        SEEN("008", 1, "ID_mensaje"),
         DELETE("009", 1, "ID_mensaje"),
         BUZZ("010", 1, "ID_ver"),
         PIN("011", 1, "ID_mensaje"),
-        SEEN("012", 3, "ID_user", "ID_run", "Mensaje"),
+        UNIQUE("012", 3, "ID_user", "ID_mensaje", "Mensaje"),
         THEME("013", 2, "ID_user", "ID_tema"),
         OUTLINE("0018", 1, "ID_user"),
         SHARE("020", 3, "ID_user", "Nombre", "IP"),
@@ -96,11 +96,11 @@ public abstract class ProtocolMessage {
             case "005" -> parseHelloAccept(split);
             case "006" -> parseHelloReject(split);
             case "007" -> parseChat(split);
-            case "008" -> parseReceipt(split);
+            case "008" -> parseSeen(split);
             case "009" -> parseDelete(split);
             case "010" -> parseBuzz(split);
             case "011" -> parsePin(split);
-            case "012" -> parseSeen(split);
+            case "012" -> parseUnique(split);
             case "013" -> parseTheme(split);
             case "0018" -> parseOutline(split);
             case "020" -> parseShare(split);
@@ -141,11 +141,11 @@ public abstract class ProtocolMessage {
             case HELLO_ACCEPT -> new HelloAcceptMessage(parts.get(0));
             case HELLO_REJECT -> new HelloRejectMessage();
             case CHAT -> new ChatMessage(parts.get(0), parts.get(1), parts.get(2));
-            case RECEIPT -> new ReceiptMessage(parts.get(0));
+            case SEEN -> new SeenMessage(parts.get(0));
             case DELETE -> new DeleteMessage(parts.get(0));
             case BUZZ -> new BuzzMessage(parts.get(0));
             case PIN -> new PinMessage(parts.get(0));
-            case SEEN -> new SeenMessage(parts.get(0), parts.get(1), parts.get(2));
+            case UNIQUE -> new UniqueMessage(parts.get(0), parts.get(1), parts.get(2));
             case THEME -> new ThemeMessage(parts.get(0), parts.get(1));
             case OUTLINE -> new OutlineMessage(parts.get(0));
             case SHARE -> new ShareMessage(parts.get(0), parts.get(1), parts.get(2));
@@ -199,10 +199,6 @@ public abstract class ProtocolMessage {
         return of(Code.CHAT, extractParts(split));
     }
 
-    private static ProtocolMessage parseReceipt(String[] split) {
-        return of(Code.RECEIPT, extractParts(split));
-    }
-
     private static ProtocolMessage parseDelete(String[] split) {
         return of(Code.DELETE, extractParts(split));
     }
@@ -217,6 +213,10 @@ public abstract class ProtocolMessage {
 
     private static ProtocolMessage parseSeen(String[] split) {
         return of(Code.SEEN, extractParts(split));
+    }
+
+    private static ProtocolMessage parseUnique(String[] split) {
+        return of(Code.UNIQUE, extractParts(split));
     }
 
     private static ProtocolMessage parseTheme(String[] split) {
@@ -312,17 +312,6 @@ public abstract class ProtocolMessage {
         }
     }
 
-    public static final class ReceiptMessage extends ProtocolMessage {
-        public ReceiptMessage(String messageId) {
-            super(List.of(messageId));
-        }
-
-        @Override
-        public Code code() {
-            return Code.RECEIPT;
-        }
-    }
-
     public static final class DeleteMessage extends ProtocolMessage {
         public DeleteMessage(String messageId) {
             super(List.of(messageId));
@@ -357,13 +346,24 @@ public abstract class ProtocolMessage {
     }
 
     public static final class SeenMessage extends ProtocolMessage {
-        public SeenMessage(String userId, String runId, String message) {
-            super(List.of(userId, runId, message));
+        public SeenMessage(String messageId) {
+            super(List.of(messageId));
         }
 
         @Override
         public Code code() {
             return Code.SEEN;
+        }
+    }
+
+    public static final class UniqueMessage extends ProtocolMessage {
+        public UniqueMessage(String userId, String messageId, String message) {
+            super(List.of(userId, messageId, message));
+        }
+
+        @Override
+        public Code code() {
+            return Code.UNIQUE;
         }
     }
 

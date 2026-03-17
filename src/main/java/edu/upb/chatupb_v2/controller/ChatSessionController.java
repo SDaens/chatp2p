@@ -4,8 +4,10 @@ import edu.upb.chatupb_v2.model.ChatMessage;
 import edu.upb.chatupb_v2.model.ChatMessageDao;
 import edu.upb.chatupb_v2.model.ChatTransport;
 import edu.upb.chatupb_v2.model.ChatTransportListener;
+import edu.upb.chatupb_v2.model.CacheContactDao;
 import edu.upb.chatupb_v2.model.Contact;
 import edu.upb.chatupb_v2.model.ContactDao;
+import edu.upb.chatupb_v2.model.IContactDao;
 import edu.upb.chatupb_v2.model.ProtocolMessage;
 import edu.upb.chatupb_v2.model.SocketChatTransport;
 
@@ -19,10 +21,12 @@ import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.EnumMap;
+import java.util.Map;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -32,7 +36,7 @@ public class ChatSessionController extends ChatTransportListener {
     private static final String DEFAULT_LOCAL_NAME = "Usuario";
 
     private final ChatTransport transport;
-    private final ContactDao contactDao = new ContactDao();
+    private final IContactDao contactDao = new CacheContactDao(new ContactDao());
     private final ChatMessageDao chatMessageDao = new ChatMessageDao();
     private final String localUserId = UUID.randomUUID().toString();
     private volatile String localName = DEFAULT_LOCAL_NAME;
@@ -41,7 +45,23 @@ public class ChatSessionController extends ChatTransportListener {
     private final CopyOnWriteArrayList<ChatSessionObserver> sessionObservers = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<ConnectionRequestObserver> requestObservers = new CopyOnWriteArrayList<>();
     private final EnumMap<ProtocolMessage.Code, ProtocolCommand> protocolCommands = new EnumMap<>(ProtocolMessage.Code.class);
+    private final Map<String, String> pinnedMessageByContact = new ConcurrentHashMap<>();
+    private volatile String currentThemeId = "default";
     private static final Pattern CONNECT_ERROR_PATTERN = Pattern.compile("^No se pudo conectar a\\s+([^:]+):\\d+\\s+-\\s+.*");
+    private static final Map<String, String> THEME_BY_INDEX = Map.of(
+            "1", "default",
+            "2", "sunset",
+            "3", "forest",
+            "4", "midnight",
+            "5", "citrus"
+    );
+    private static final Map<String, String> INDEX_BY_THEME = Map.of(
+            "default", "1",
+            "sunset", "2",
+            "forest", "3",
+            "midnight", "4",
+            "citrus", "5"
+    );
     private IchatIU iChatIU;
 
     private volatile boolean invitationAccepted;
@@ -94,6 +114,7 @@ public class ChatSessionController extends ChatTransportListener {
         activeRemoteIp = null;
         sessionObservers.clear();
         requestObservers.clear();
+        pinnedMessageByContact.clear();
         iChatIU = null;
     }
 
@@ -102,6 +123,13 @@ public class ChatSessionController extends ChatTransportListener {
         if (cleanIp.isEmpty()) {
             publishSystemMessage("Ingresa una IP remota válida.");
             return;
+        }
+        if (transport.isConnected() && activeRemoteIp != null && !activeRemoteIp.isBlank()) {
+            if (activeRemoteIp.equals(cleanIp)) {
+                publishSystemMessage("Ya existe una conexión activa con " + cleanIp + ".");
+                return;
+            }
+            transport.disconnect();
         }
         cancelProbe();
         lastOutboundIp = cleanIp;
@@ -123,6 +151,24 @@ public class ChatSessionController extends ChatTransportListener {
         long sentAtMillis = System.currentTimeMillis();
         String senderLabel = resolveLocalName();
         sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.CHAT, localUserId, messageId, cleanText));
+        publishChatMessage(activeRemoteIp, cleanText, true, formatEpochMillis(sentAtMillis), senderLabel, messageId);
+        persistChatMessage(activeRemoteIp, messageId, cleanText, true, senderLabel, sentAtMillis);
+        return true;
+    }
+
+    public boolean sendUniqueMessage(String text) {
+        String cleanText = text == null ? "" : text.trim();
+        if (cleanText.isEmpty()) {
+            return false;
+        }
+        if (!invitationAccepted) {
+            publishSystemMessage("La conversación sigue pendiente. Espera a que acepten la invitación.");
+        }
+
+        String messageId = localUserId + "-uniq-" + messageSeq.getAndIncrement();
+        long sentAtMillis = System.currentTimeMillis();
+        String senderLabel = resolveLocalName();
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.UNIQUE, localUserId, messageId, cleanText));
         publishChatMessage(activeRemoteIp, cleanText, true, formatEpochMillis(sentAtMillis), senderLabel, messageId);
         persistChatMessage(activeRemoteIp, messageId, cleanText, true, senderLabel, sentAtMillis);
         return true;
@@ -238,8 +284,9 @@ public class ChatSessionController extends ChatTransportListener {
             if (knownContact) {
                 invitationAccepted = true;
                 sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.HELLO_BROADCAST, localUserId));
+            } else {
+                sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, resolveLocalName()));
             }
-            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.REQUEST, localUserId, resolveLocalName()));
         }
     }
 
@@ -296,7 +343,6 @@ public class ChatSessionController extends ChatTransportListener {
         protocolCommands.put(ProtocolMessage.Code.HELLO_ACCEPT, new HelloAcceptCommand());
         protocolCommands.put(ProtocolMessage.Code.HELLO_REJECT, new HelloRejectCommand());
         protocolCommands.put(ProtocolMessage.Code.CHAT, new ChatCommand());
-        protocolCommands.put(ProtocolMessage.Code.RECEIPT, new ReceiptCommand());
         protocolCommands.put(ProtocolMessage.Code.DELETE, new DeleteCommand());
         protocolCommands.put(ProtocolMessage.Code.BUZZ, new BuzzCommand());
         protocolCommands.put(ProtocolMessage.Code.PIN, new PinCommand());
@@ -305,6 +351,7 @@ public class ChatSessionController extends ChatTransportListener {
         protocolCommands.put(ProtocolMessage.Code.OUTLINE, new OutlineCommand());
         protocolCommands.put(ProtocolMessage.Code.SHARE, new ShareCommand());
         protocolCommands.put(ProtocolMessage.Code.IMAGE, new ImageCommand());
+        protocolCommands.put(ProtocolMessage.Code.UNIQUE, new ChatCommand());
     }
 
     private interface ProtocolCommand {
@@ -371,8 +418,6 @@ public class ChatSessionController extends ChatTransportListener {
             }
             publishChatMessage(activeRemoteIp, message.param(2), false, sentAt, remoteLabel, message.param(1));
             persistChatMessage(activeRemoteIp, message.param(1), message.param(2), false, remoteLabel, sentAtMillis);
-            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.RECEIPT, message.param(1)));
-            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, localUserId, message.param(1), message.param(2)));
         }
     }
 
@@ -389,16 +434,6 @@ public class ChatSessionController extends ChatTransportListener {
             }
             publishChatMessage(activeRemoteIp, message.param(2), false, sentAt, remoteLabel, message.param(1));
             persistChatMessage(activeRemoteIp, message.param(1), message.param(2), false, remoteLabel, sentAtMillis);
-            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.RECEIPT, message.param(1)));
-            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, localUserId, message.param(1), message.param(2)));
-        }
-    }
-
-    private final class ReceiptCommand implements ProtocolCommand {
-        @Override
-        public void execute(ProtocolMessage message) {
-            publishSystemMessage("Mensaje confirmado: " + message.param(0));
-            publishMessageSeen(activeRemoteIp, message.param(0));
         }
     }
 
@@ -419,28 +454,28 @@ public class ChatSessionController extends ChatTransportListener {
     private final class PinCommand implements ProtocolCommand {
         @Override
         public void execute(ProtocolMessage message) {
-            publishSystemMessage("Solicitud fijar mensaje: " + message.param(0));
+            handlePinMessage(activeRemoteIp, message.param(0));
         }
     }
 
     private final class SeenCommand implements ProtocolCommand {
         @Override
         public void execute(ProtocolMessage message) {
-            publishMessageSeen(activeRemoteIp, message.param(1));
+            publishMessageSeen(activeRemoteIp, message.param(0));
         }
     }
 
     private final class ThemeCommand implements ProtocolCommand {
         @Override
         public void execute(ProtocolMessage message) {
-            publishSystemMessage("Cambio de tema recibido: " + message.param(1));
+            handleTheme(message.param(1));
         }
     }
 
     private final class OutlineCommand implements ProtocolCommand {
         @Override
         public void execute(ProtocolMessage message) {
-            publishSystemMessage("Estoy offline. " + message.param(0));
+            handleOutline(activeRemoteIp, message.param(0));
         }
     }
 
@@ -610,12 +645,11 @@ public class ChatSessionController extends ChatTransportListener {
         }
     }
 
-    public void sendSeen(String messageId, String messageText) {
+    public void sendSeen(String messageId) {
         if (messageId == null || messageId.isBlank()) {
             return;
         }
-        String safeText = messageText == null ? "" : messageText;
-        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, localUserId, messageId, safeText));
+        sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.SEEN, messageId));
     }
 
     public void sendBuzz(String contactIp) {
@@ -623,6 +657,29 @@ public class ChatSessionController extends ChatTransportListener {
             return;
         }
         sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.BUZZ, localUserId));
+    }
+
+    public void setTheme(String themeId) {
+        String cleanId = normalizeThemeId(themeId);
+        if (cleanId.isEmpty() || cleanId.equals(currentThemeId)) {
+            return;
+        }
+        currentThemeId = cleanId;
+        publishThemeChanged(cleanId, false);
+        if (transport.isConnected() && activeRemoteIp != null && !activeRemoteIp.isBlank()) {
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.THEME, localUserId, encodeThemeId(cleanId)));
+        }
+    }
+
+    public void togglePinMessage(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        boolean pinned = updatePinnedMessage(contactIp, messageId);
+        publishMessagePinned(contactIp, messageId, pinned);
+        if (transport.isConnected() && contactIp.equals(activeRemoteIp)) {
+            sendProtocol(ProtocolMessage.of(ProtocolMessage.Code.PIN, messageId));
+        }
     }
 
     private void publishContactDiscovered(String ip) {
@@ -688,8 +745,21 @@ public class ChatSessionController extends ChatTransportListener {
     private void deleteMessageLocal(String contactIp, String messageId) {
         try {
             chatMessageDao.deleteByMessageId(contactIp, messageId);
+            clearPinnedMessageIfMatch(contactIp, messageId);
         } catch (SQLException ex) {
             publishSystemMessage("no se pudo borrar mensaje: " + ex.getMessage());
+        }
+    }
+
+    public void markUniqueMessageViewed(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        try {
+            chatMessageDao.markUniqueViewed(contactIp, messageId);
+            chatMessageDao.wipeUniquePayload(contactIp, messageId);
+        } catch (SQLException ex) {
+            publishSystemMessage("no se pudo actualizar mensaje unico: " + ex.getMessage());
         }
     }
 
@@ -717,9 +787,70 @@ public class ChatSessionController extends ChatTransportListener {
         }
     }
 
+    private void publishThemeChanged(String themeId, boolean remote) {
+        for (ChatSessionObserver observer : sessionObservers) {
+            observer.onThemeChanged(themeId, remote);
+        }
+    }
+
+    private void publishMessagePinned(String contactIp, String messageId, boolean pinned) {
+        for (ChatSessionObserver observer : sessionObservers) {
+            observer.onMessagePinned(contactIp, messageId, pinned);
+        }
+    }
+
     private void publishSystemMessage(String text) {
         for (ChatSessionObserver observer : sessionObservers) {
             observer.onSystemMessage(text);
+        }
+    }
+
+    private void handleOutline(String contactIp, String remoteId) {
+        if (contactIp == null || contactIp.isBlank()) {
+            return;
+        }
+        publishPresence(contactIp, false);
+        String detail = remoteId == null || remoteId.isBlank()
+                ? "El contacto está offline."
+                : "El contacto está offline: " + remoteId;
+        publishSystemMessage(detail);
+    }
+
+    private void handleTheme(String themeId) {
+        if (themeId == null || themeId.isBlank()) {
+            return;
+        }
+        String normalized = normalizeThemeId(themeId);
+        currentThemeId = normalized;
+        publishThemeChanged(normalized, true);
+    }
+
+    private void handlePinMessage(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        boolean pinned = updatePinnedMessage(contactIp, messageId);
+        publishMessagePinned(contactIp, messageId, pinned);
+    }
+
+    private boolean updatePinnedMessage(String contactIp, String messageId) {
+        String current = pinnedMessageByContact.get(contactIp);
+        if (messageId.equals(current)) {
+            pinnedMessageByContact.remove(contactIp);
+            return false;
+        }
+        pinnedMessageByContact.put(contactIp, messageId);
+        return true;
+    }
+
+    private void clearPinnedMessageIfMatch(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        String current = pinnedMessageByContact.get(contactIp);
+        if (messageId.equals(current)) {
+            pinnedMessageByContact.remove(contactIp);
+            publishMessagePinned(contactIp, messageId, false);
         }
     }
 
@@ -791,6 +922,30 @@ public class ChatSessionController extends ChatTransportListener {
             probeIp = null;
             probeQueue.clear();
         }
+    }
+
+    private String normalizeThemeId(String themeId) {
+        String clean = themeId == null ? "" : themeId.trim();
+        if (clean.isEmpty()) {
+            return "default";
+        }
+        String mapped = THEME_BY_INDEX.get(clean);
+        if (mapped != null) {
+            return mapped;
+        }
+        if (INDEX_BY_THEME.containsKey(clean)) {
+            return clean;
+        }
+        return clean;
+    }
+
+    private String encodeThemeId(String themeId) {
+        String clean = themeId == null ? "" : themeId.trim();
+        if (clean.isEmpty()) {
+            return "1";
+        }
+        String mapped = INDEX_BY_THEME.get(clean);
+        return mapped != null ? mapped : clean;
     }
 
     private String extractConnectErrorIp(String message) {

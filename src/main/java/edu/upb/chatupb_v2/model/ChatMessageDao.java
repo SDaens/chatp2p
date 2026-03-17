@@ -22,6 +22,7 @@ public class ChatMessageDao {
                     text TEXT NOT NULL,
                     self_sent INTEGER NOT NULL,
                     sender_label TEXT,
+                    unique_viewed INTEGER NOT NULL DEFAULT 0,
                     sent_at_millis INTEGER NOT NULL
                 )
                 """;
@@ -32,6 +33,7 @@ public class ChatMessageDao {
             throw new IllegalStateException("no se pudo crear la tabla chat_message", ex);
         }
         ensureMessageIdColumn();
+        ensureUniqueViewedColumn();
     }
 
     private void ensureMessageIdColumn() {
@@ -56,13 +58,35 @@ public class ChatMessageDao {
         }
     }
 
+    private void ensureUniqueViewedColumn() {
+        String sql = "PRAGMA table_info(chat_message)";
+        try (Connection conn = ConnectionDB.getInstance().getConection();
+             PreparedStatement pst = conn.prepareStatement(sql);
+             ResultSet rs = pst.executeQuery()) {
+            boolean found = false;
+            while (rs.next()) {
+                if ("unique_viewed".equalsIgnoreCase(rs.getString("name"))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                try (PreparedStatement alter = conn.prepareStatement("ALTER TABLE chat_message ADD COLUMN unique_viewed INTEGER NOT NULL DEFAULT 0")) {
+                    alter.execute();
+                }
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("no se pudo migrar chat_message unique_viewed", ex);
+        }
+    }
+
     public void save(String contactIp, String messageId, String text, boolean selfSent, String senderLabel, long sentAtMillis) throws SQLException {
         if (contactIp == null || contactIp.isBlank() || text == null || text.isBlank()) {
             return;
         }
         String sql = """
-                INSERT INTO chat_message(message_id, contact_ip, text, self_sent, sender_label, sent_at_millis)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_message(message_id, contact_ip, text, self_sent, sender_label, unique_viewed, sent_at_millis)
+                VALUES (?, ?, ?, ?, ?, 0, ?)
                 """;
         try (Connection conn = ConnectionDB.getInstance().getConection();
              PreparedStatement pst = conn.prepareStatement(sql)) {
@@ -82,7 +106,7 @@ public class ChatMessageDao {
             return messages;
         }
         String sql = """
-                SELECT id, message_id, contact_ip, text, self_sent, sender_label, sent_at_millis
+                SELECT id, message_id, contact_ip, text, self_sent, sender_label, unique_viewed, sent_at_millis
                 FROM chat_message
                 WHERE contact_ip = ?
                 ORDER BY sent_at_millis ASC, id ASC
@@ -99,12 +123,39 @@ public class ChatMessageDao {
                     message.setText(rs.getString("text"));
                     message.setSelfSent(rs.getInt("self_sent") == 1);
                     message.setSenderLabel(rs.getString("sender_label"));
+                    message.setUniqueViewed(rs.getInt("unique_viewed") == 1);
                     message.setSentAtMillis(rs.getLong("sent_at_millis"));
                     messages.add(message);
                 }
             }
         }
         return messages;
+    }
+
+    public void markUniqueViewed(String contactIp, String messageId) throws SQLException {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        String sql = "UPDATE chat_message SET unique_viewed = 1 WHERE contact_ip = ? AND message_id = ?";
+        try (Connection conn = ConnectionDB.getInstance().getConection();
+             PreparedStatement pst = conn.prepareStatement(sql)) {
+            pst.setString(1, contactIp.trim());
+            pst.setString(2, messageId.trim());
+            pst.executeUpdate();
+        }
+    }
+
+    public void wipeUniquePayload(String contactIp, String messageId) throws SQLException {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        String sql = "UPDATE chat_message SET text = '' WHERE contact_ip = ? AND message_id = ?";
+        try (Connection conn = ConnectionDB.getInstance().getConection();
+             PreparedStatement pst = conn.prepareStatement(sql)) {
+            pst.setString(1, contactIp.trim());
+            pst.setString(2, messageId.trim());
+            pst.executeUpdate();
+        }
     }
 
     public void deleteByMessageId(String contactIp, String messageId) throws SQLException {

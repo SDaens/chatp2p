@@ -9,6 +9,7 @@ import edu.upb.chatupb_v2.controller.IchatIU;
 import edu.upb.chatupb_v2.controller.LocalProfileController;
 import edu.upb.chatupb_v2.model.ChatMessage;
 import edu.upb.chatupb_v2.model.Contact;
+import javafx.animation.Animation;
 import javafx.animation.PauseTransition;
 import javafx.animation.TranslateTransition;
 import javafx.application.Application;
@@ -53,11 +54,13 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -76,6 +79,7 @@ public class ChatUIApp extends Application implements IchatIU {
     private Label localIpValue;
     private Label remoteIpValue;
     private Label statusValue;
+    private BorderPane rootPane;
     private VBox messages;
     private ScrollPane scrollPane;
     private TextArea input;
@@ -85,18 +89,39 @@ public class ChatUIApp extends Application implements IchatIU {
     private final Map<String, ContactStatusRenderer.ContactItemView> contactItems = new LinkedHashMap<>();
     private final Map<String, Map<String, Label>> sentMessageTicks = new HashMap<>();
     private final Map<String, Map<String, HBox>> messageRows = new HashMap<>();
+    private final Map<String, Map<String, String>> messageTexts = new HashMap<>();
+    private final Map<String, Map<String, String>> uniquePayloads = new HashMap<>();
+    private final Map<String, Set<String>> viewedUniqueMessages = new HashMap<>();
+    private final Map<String, Map<String, Label>> uniquePlaceholders = new HashMap<>();
+    private final Map<String, String> pinnedMessageByContact = new HashMap<>();
+    private final Map<String, Boolean> presenceByContact = new HashMap<>();
     private final Map<String, PauseTransition> buzzTimers = new HashMap<>();
+    private final Map<String, Long> lastBuzzAt = new HashMap<>();
+    private static final long BUZZ_MIN_INTERVAL_MS = 300;
     private volatile String selectedContactIp;
     private Button connectSelectedButton;
+    private Button attachButton;
+    private Button shareButton;
+    private Button buzzButton;
+    private Button sendButton;
+    private Button themeButton;
+    private Button uniqueButton;
     private final DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm");
     private TranslateTransition buzzAnimation;
+    private HBox pinnedBar;
+    private Label pinnedText;
+    private Button unpinButton;
+    private HBox offlineBar;
+    private Label offlineText;
+    private String currentThemeId = "default";
 
     @Override
     public void start(Stage stage) {
         primaryStage = stage;
 
         BorderPane root = new BorderPane();
-        root.getStyleClass().add("root");
+        root.getStyleClass().addAll("root", "theme-default");
+        rootPane = root;
 
         root.setTop(buildHeader());
         root.setLeft(buildContactsSidebar(stage));
@@ -115,6 +140,7 @@ public class ChatUIApp extends Application implements IchatIU {
         stage.show();
 
         bindControllerEvents();
+        applyTheme(currentThemeId);
         loadSavedContactsInUI();
         chatController.setIChatIU(this);
         ensureLocalProfileName();
@@ -167,6 +193,16 @@ public class ChatUIApp extends Application implements IchatIU {
             @Override
             public void onBuzz(String contactIp) {
                 ChatUIApp.this.onBuzz(contactIp);
+            }
+
+            @Override
+            public void onMessagePinned(String contactIp, String messageId, boolean pinned) {
+                ChatUIApp.this.onMessagePinned(contactIp, messageId, pinned);
+            }
+
+            @Override
+            public void onThemeChanged(String themeId, boolean remote) {
+                ChatUIApp.this.onThemeChanged(themeId, remote);
             }
 
             @Override
@@ -247,7 +283,7 @@ public class ChatUIApp extends Application implements IchatIU {
         return row;
     }
 
-    private ScrollPane buildConversation() {
+    private VBox buildConversation() {
         messages = new VBox(12);
         messages.getStyleClass().add("messages");
 
@@ -256,7 +292,38 @@ public class ChatUIApp extends Application implements IchatIU {
         scrollPane.getStyleClass().add("message-scroll");
         scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         scrollPane.setVvalue(1.0);
-        return scrollPane;
+
+        Label pinnedLabel = new Label("Mensaje fijado");
+        pinnedLabel.getStyleClass().add("pinned-title");
+        pinnedText = new Label("-");
+        pinnedText.getStyleClass().add("pinned-text");
+        pinnedText.setWrapText(true);
+
+        unpinButton = new Button("Quitar");
+        unpinButton.getStyleClass().add("pinned-action");
+        unpinButton.setOnAction(event -> unpinSelectedMessage());
+
+        VBox pinnedContent = new VBox(2, pinnedLabel, pinnedText);
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        pinnedBar = new HBox(10, pinnedContent, spacer, unpinButton);
+        pinnedBar.getStyleClass().add("pinned-bar");
+        pinnedBar.setAlignment(Pos.CENTER_LEFT);
+        pinnedBar.setVisible(false);
+        pinnedBar.setManaged(false);
+
+        offlineText = new Label("Contacto offline. No puedes enviar mensajes.");
+        offlineText.getStyleClass().add("offline-text");
+        offlineBar = new HBox(offlineText);
+        offlineBar.getStyleClass().add("offline-bar");
+        offlineBar.setAlignment(Pos.CENTER_LEFT);
+        offlineBar.setVisible(false);
+        offlineBar.setManaged(false);
+
+        VBox conversation = new VBox(offlineBar, pinnedBar, scrollPane);
+        VBox.setVgrow(scrollPane, Priority.ALWAYS);
+        return conversation;
     }
 
     private VBox buildContactsSidebar(Stage owner) {
@@ -299,26 +366,34 @@ public class ChatUIApp extends Application implements IchatIU {
             }
         });
 
-        Button attach = new Button("Adjuntar imagen");
-        attach.getStyleClass().add("secondary-button");
-        attach.setOnAction(e -> attachImage());
+        attachButton = new Button("Adjuntar imagen");
+        attachButton.getStyleClass().add("secondary-button");
+        attachButton.setOnAction(e -> attachImage());
 
-        Button shareContact = new Button("Compartir contacto");
-        shareContact.getStyleClass().add("secondary-button");
-        shareContact.setOnAction(e -> shareContact());
+        shareButton = new Button("Compartir contacto");
+        shareButton.getStyleClass().add("secondary-button");
+        shareButton.setOnAction(e -> shareContact());
 
-        Button buzz = new Button("Buzz");
-        buzz.getStyleClass().add("secondary-button");
-        buzz.setOnAction(e -> sendBuzz());
+        buzzButton = new Button("Buzz");
+        buzzButton.getStyleClass().add("secondary-button");
+        buzzButton.setOnAction(e -> sendBuzz());
 
-        Button send = new Button("Enviar");
-        send.getStyleClass().add("primary-button");
-        send.setOnAction(e -> sendChatMessage());
+        themeButton = new Button("Tema");
+        themeButton.getStyleClass().add("secondary-button");
+        themeButton.setOnAction(e -> chooseTheme());
+
+        uniqueButton = new Button("Único");
+        uniqueButton.getStyleClass().add("secondary-button");
+        uniqueButton.setOnAction(e -> sendUniqueMessage());
+
+        sendButton = new Button("Enviar");
+        sendButton.getStyleClass().add("primary-button");
+        sendButton.setOnAction(e -> sendChatMessage());
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox actions = new HBox(12, attach, shareContact, buzz, spacer, send);
+        HBox actions = new HBox(12, attachButton, shareButton, buzzButton, themeButton, uniqueButton, spacer, sendButton);
         actions.setAlignment(Pos.CENTER_LEFT);
 
         VBox composer = new VBox(10, hint, input, actions);
@@ -333,6 +408,17 @@ public class ChatUIApp extends Application implements IchatIU {
             return;
         }
         boolean sent = chatController.sendChatMessage(text);
+        if (sent) {
+            input.clear();
+        }
+    }
+
+    private void sendUniqueMessage() {
+        String text = input.getText() == null ? "" : input.getText().trim();
+        if (text.isEmpty()) {
+            return;
+        }
+        boolean sent = chatController.sendUniqueMessage(text);
         if (sent) {
             input.clear();
         }
@@ -423,7 +509,7 @@ public class ChatUIApp extends Application implements IchatIU {
             }
             contactController.saveByIp(ip);
             onContactDiscovered(ip);
-            selectContact(ip, false);
+            selectContact(ip, true);
             popup.close();
         });
 
@@ -526,6 +612,10 @@ public class ChatUIApp extends Application implements IchatIU {
             ContactStatusRenderer.ContactItemView itemView = contactRenderer.create(label, e -> selectContact(cleanIp, false));
             contactsBox.getChildren().add(itemView.button());
             contactItems.put(cleanIp, itemView);
+            Boolean online = presenceByContact.get(cleanIp);
+            if (online != null) {
+                contactRenderer.renderStatus(itemView, online);
+            }
         });
     }
 
@@ -610,10 +700,17 @@ public class ChatUIApp extends Application implements IchatIU {
     }
 
     private void onPresenceChanged(String contactIp, boolean online) {
+        if (contactIp == null || contactIp.isBlank()) {
+            return;
+        }
+        presenceByContact.put(contactIp, online);
         if (online) {
             setContactOnline(contactIp);
         } else {
             setContactOffline(contactIp);
+        }
+        if (contactIp.equals(selectedContactIp)) {
+            updateConversationAvailability(contactIp);
         }
     }
 
@@ -627,6 +724,9 @@ public class ChatUIApp extends Application implements IchatIU {
             addChatBubble(contactIp, text, self, sentAt, senderLabel, messageId);
             return;
         }
+        if (!self && messageId != null && !messageId.isBlank()) {
+            chatController.sendSeen(messageId);
+        }
         addOrSelectContact(contactIp);
         if (selectedContactIp == null || selectedContactIp.isBlank()) {
             selectedContactIp = contactIp;
@@ -637,15 +737,22 @@ public class ChatUIApp extends Application implements IchatIU {
             return;
         }
         addChatBubble(contactIp, text, self, sentAt, senderLabel, messageId);
-        if (!self && messageId != null && !messageId.isBlank()) {
-            chatController.sendSeen(messageId, text);
-        }
     }
 
     @Override
     public void onSystemMessage(String text) {
         addSystemMessage(text);
         showOfflinePopupIfNeeded(text);
+    }
+
+    private void onThemeChanged(String themeId, boolean remote) {
+        if (themeId == null || themeId.isBlank()) {
+            return;
+        }
+        Platform.runLater(() -> {
+            currentThemeId = themeId.trim();
+            applyTheme(currentThemeId);
+        });
     }
 
     @Override
@@ -720,7 +827,13 @@ public class ChatUIApp extends Application implements IchatIU {
     }
 
     private void addChatBubbleNow(String contactIp, String text, boolean self, String timeText, String userLabel, String messageId) {
-        javafx.scene.Node contentNode = buildMessageContentNode(text, messageId);
+        boolean uniqueMessage = isUniqueMessage(messageId);
+        String uniqueText = uniqueMessage ? decodeUniqueMessage(text) : null;
+        boolean viewedUnique = uniqueMessage && isUniqueViewed(contactIp, messageId);
+        Label uniquePlaceholder = uniqueMessage ? buildUniquePlaceholder() : null;
+        javafx.scene.Node contentNode = uniqueMessage
+                ? uniquePlaceholder
+                : buildMessageContentNode(text, messageId);
 
         Label timeNode = new Label(timeText);
         timeNode.getStyleClass().add("message-time");
@@ -731,20 +844,7 @@ public class ChatUIApp extends Application implements IchatIU {
             tickNode.getStyleClass().add("message-tick");
             HBox metaRow;
             if (messageId != null && !messageId.isBlank()) {
-                Button menuButton = new Button("▾");
-                menuButton.getStyleClass().add("message-menu");
-                menuButton.setFocusTraversable(false);
-
-                ContextMenu menu = new ContextMenu();
-                MenuItem deleteItem = new MenuItem("Eliminar");
-                deleteItem.setOnAction(event -> chatController.deleteMessage(contactIp, messageId));
-                menu.getItems().add(deleteItem);
-
-                menuButton.setOnAction(event -> {
-                    if (!menu.isShowing()) {
-                        menu.show(menuButton, Side.BOTTOM, 0, 0);
-                    }
-                });
+                Button menuButton = buildMessageMenuButton(contactIp, messageId, true);
                 metaRow = new HBox(6, timeNode, tickNode, menuButton);
             } else {
                 metaRow = new HBox(6, timeNode, tickNode);
@@ -757,7 +857,14 @@ public class ChatUIApp extends Application implements IchatIU {
                         .put(messageId, tickNode);
             }
         } else {
-            bubble = new VBox(4, contentNode, timeNode);
+            if (messageId != null && !messageId.isBlank()) {
+                Button menuButton = buildMessageMenuButton(contactIp, messageId, false);
+                HBox metaRow = new HBox(6, timeNode, menuButton);
+                metaRow.setAlignment(Pos.CENTER_LEFT);
+                bubble = new VBox(4, contentNode, metaRow);
+            } else {
+                bubble = new VBox(4, contentNode, timeNode);
+            }
         }
         bubble.getStyleClass().add(self ? "bubble-self" : "bubble-peer");
         bubble.setMaxWidth(420);
@@ -770,10 +877,33 @@ public class ChatUIApp extends Application implements IchatIU {
             messageRows
                     .computeIfAbsent(contactIp, key -> new LinkedHashMap<>())
                     .put(messageId, row);
+            messageTexts
+                    .computeIfAbsent(contactIp, key -> new LinkedHashMap<>())
+                    .put(messageId, text == null ? "" : text);
+            if (uniqueMessage) {
+                uniquePayloads
+                        .computeIfAbsent(contactIp, key -> new LinkedHashMap<>())
+                        .put(messageId, uniqueText == null ? "" : uniqueText);
+                uniquePlaceholders
+                        .computeIfAbsent(contactIp, key -> new LinkedHashMap<>())
+                        .put(messageId, uniquePlaceholder);
+            }
         }
 
         messages.getChildren().add(row);
         scrollPane.setVvalue(1.0);
+        if (uniqueMessage && contactIp != null && !contactIp.isBlank() && messageId != null && !messageId.isBlank()) {
+            attachUniqueClickHandler(row, contactIp, messageId);
+            if (viewedUnique) {
+                markUniqueViewedVisual(contactIp, messageId);
+            }
+        }
+        if (contactIp != null && !contactIp.isBlank() && messageId != null && !messageId.isBlank()) {
+            String pinnedId = pinnedMessageByContact.get(contactIp);
+            if (messageId.equals(pinnedId) && contactIp.equals(selectedContactIp)) {
+                updatePinnedBar(contactIp);
+            }
+        }
     }
 
     private javafx.scene.Node buildMessageContentNode(String text, String messageId) {
@@ -800,6 +930,119 @@ public class ChatUIApp extends Application implements IchatIU {
         return textNode;
     }
 
+    private Label buildUniquePlaceholder() {
+        Label placeholder = new Label(" ");
+        placeholder.getStyleClass().add("message-unique");
+        placeholder.setMinHeight(16);
+        return placeholder;
+    }
+
+    private boolean isUniqueMessage(String messageId) {
+        return messageId != null && messageId.contains("-uniq-");
+    }
+
+    private String decodeUniqueMessage(String text) {
+        return text == null ? "" : text;
+    }
+
+    private void attachUniqueClickHandler(HBox row, String contactIp, String messageId) {
+        row.setOnMouseClicked(event -> {
+            if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+                return;
+            }
+            Set<String> viewed = viewedUniqueMessages.computeIfAbsent(contactIp, key -> new HashSet<>());
+            if (viewed.contains(messageId)) {
+                return;
+            }
+            Map<String, String> payloads = uniquePayloads.get(contactIp);
+            if (payloads == null) {
+                return;
+            }
+            String payload = payloads.get(messageId);
+            if (payload == null) {
+                return;
+            }
+            showUniquePopup(payload);
+            viewed.add(messageId);
+            chatController.markUniqueMessageViewed(contactIp, messageId);
+            Map<String, String> payloadsMutable = uniquePayloads.get(contactIp);
+            if (payloadsMutable != null) {
+                payloadsMutable.remove(messageId);
+            }
+            markUniqueViewedVisual(contactIp, messageId);
+        });
+    }
+
+    private boolean isUniqueViewed(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return false;
+        }
+        Set<String> viewed = viewedUniqueMessages.get(contactIp);
+        if (viewed != null && viewed.contains(messageId)) {
+            return true;
+        }
+        return false;
+    }
+
+    private void markUniqueViewedVisual(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        Map<String, Label> placeholders = uniquePlaceholders.get(contactIp);
+        if (placeholders != null) {
+            Label placeholder = placeholders.get(messageId);
+            if (placeholder != null) {
+                placeholder.setText("Visto");
+                placeholder.getStyleClass().add("message-unique-viewed");
+            }
+        }
+    }
+
+    private void showUniquePopup(String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        if (primaryStage != null) {
+            alert.initOwner(primaryStage);
+        }
+        alert.setTitle("Mensaje único");
+        alert.setHeaderText("Mensaje único");
+        alert.setContentText(message == null ? "" : message);
+        alert.showAndWait();
+    }
+
+    private Button buildMessageMenuButton(String contactIp, String messageId, boolean allowDelete) {
+        Button menuButton = new Button("▾");
+        menuButton.getStyleClass().add("message-menu");
+        menuButton.setFocusTraversable(false);
+
+        ContextMenu menu = new ContextMenu();
+        MenuItem pinItem = new MenuItem();
+        updatePinMenuLabel(pinItem, contactIp, messageId);
+        pinItem.setOnAction(event -> chatController.togglePinMessage(contactIp, messageId));
+        menu.getItems().add(pinItem);
+
+        if (allowDelete) {
+            MenuItem deleteItem = new MenuItem("Eliminar");
+            deleteItem.setOnAction(event -> chatController.deleteMessage(contactIp, messageId));
+            menu.getItems().add(deleteItem);
+        }
+
+        menu.setOnShowing(event -> updatePinMenuLabel(pinItem, contactIp, messageId));
+
+        menuButton.setOnAction(event -> {
+            if (!menu.isShowing()) {
+                menu.show(menuButton, Side.BOTTOM, 0, 0);
+            }
+        });
+        return menuButton;
+    }
+
+    private void updatePinMenuLabel(MenuItem pinItem, String contactIp, String messageId) {
+        if (pinItem == null) {
+            return;
+        }
+        pinItem.setText(isPinned(contactIp, messageId) ? "Quitar fijado" : "Fijar");
+    }
+
     private boolean isImageMessage(String messageId) {
         return messageId != null && messageId.contains("-img-");
     }
@@ -813,6 +1056,134 @@ public class ChatUIApp extends Application implements IchatIU {
             return false;
         }
         return normalized.matches("^[A-Za-z0-9+/=]+$");
+    }
+
+    private boolean isPinned(String contactIp, String messageId) {
+        if (contactIp == null || contactIp.isBlank() || messageId == null || messageId.isBlank()) {
+            return false;
+        }
+        String current = pinnedMessageByContact.get(contactIp);
+        return messageId.equals(current);
+    }
+
+    private void updatePinnedBar(String contactIp) {
+        if (pinnedBar == null || pinnedText == null) {
+            return;
+        }
+        String pinnedId = pinnedMessageByContact.get(contactIp);
+        if (pinnedId == null || pinnedId.isBlank()) {
+            pinnedBar.setVisible(false);
+            pinnedBar.setManaged(false);
+            return;
+        }
+        pinnedText.setText(resolvePinnedPreview(contactIp, pinnedId));
+        pinnedBar.setVisible(true);
+        pinnedBar.setManaged(true);
+    }
+
+    private void chooseTheme() {
+        Map<String, String> options = themeOptions();
+        String currentLabel = options.getOrDefault(currentThemeId, options.get("default"));
+        ChoiceDialog<String> dialog = new ChoiceDialog<>(currentLabel, options.values());
+        dialog.setTitle("Seleccionar tema");
+        dialog.setHeaderText("Elige un tema para la interfaz");
+        dialog.setContentText("Tema:");
+        if (primaryStage != null) {
+            dialog.initOwner(primaryStage);
+        }
+        dialog.showAndWait().ifPresent(label -> {
+            String themeId = resolveThemeId(options, label);
+            if (themeId != null) {
+                chatController.setTheme(themeId);
+            }
+        });
+    }
+
+    private Map<String, String> themeOptions() {
+        Map<String, String> options = new LinkedHashMap<>();
+        options.put("default", "Azul");
+        options.put("sunset", "Naranja");
+        options.put("forest", "Verde");
+        options.put("midnight", "Morado");
+        options.put("citrus", "Amarillo");
+        return options;
+    }
+
+    private String resolveThemeId(Map<String, String> options, String label) {
+        for (Map.Entry<String, String> entry : options.entrySet()) {
+            if (Objects.equals(entry.getValue(), label)) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    private void applyTheme(String themeId) {
+        if (rootPane == null) {
+            return;
+        }
+        String normalized = themeId == null ? "default" : themeId.trim();
+        if (normalized.isEmpty()) {
+            normalized = "default";
+        }
+        String themeClass = "theme-" + normalized;
+        rootPane.getStyleClass().removeIf(name -> name.startsWith("theme-"));
+        rootPane.getStyleClass().add(themeClass);
+    }
+
+    private void updateConversationAvailability(String contactIp) {
+        if (offlineBar == null || input == null || sendButton == null) {
+            return;
+        }
+        boolean online = presenceByContact.getOrDefault(contactIp, true);
+        boolean disable = !online;
+        offlineBar.setVisible(disable);
+        offlineBar.setManaged(disable);
+        input.setDisable(disable);
+        sendButton.setDisable(disable);
+        if (attachButton != null) {
+            attachButton.setDisable(disable);
+        }
+        if (shareButton != null) {
+            shareButton.setDisable(disable);
+        }
+        if (buzzButton != null) {
+            buzzButton.setDisable(disable);
+        }
+        if (uniqueButton != null) {
+            uniqueButton.setDisable(disable);
+        }
+    }
+
+    private String resolvePinnedPreview(String contactIp, String messageId) {
+        Map<String, String> texts = messageTexts.get(contactIp);
+        String text = texts == null ? null : texts.get(messageId);
+        if (text == null) {
+            return "Mensaje fijado";
+        }
+        if (isUniqueMessage(messageId)) {
+            return "Mensaje único";
+        }
+        if (isImageMessage(messageId) || looksLikeBase64(text)) {
+            return "Imagen";
+        }
+        String clean = text.trim();
+        if (clean.length() > 90) {
+            return clean.substring(0, 90) + "...";
+        }
+        return clean;
+    }
+
+    private void unpinSelectedMessage() {
+        String cleanIp = selectedContactIp == null ? "" : selectedContactIp.trim();
+        if (cleanIp.isEmpty()) {
+            return;
+        }
+        String pinnedId = pinnedMessageByContact.get(cleanIp);
+        if (pinnedId == null || pinnedId.isBlank()) {
+            return;
+        }
+        chatController.togglePinMessage(cleanIp, pinnedId);
     }
 
     private void selectContact(String ip, boolean connect) {
@@ -829,6 +1200,8 @@ public class ChatUIApp extends Application implements IchatIU {
             }
             statusValue.setText(connect ? "Conectando..." : statusValue.getText());
             renderChatHistory(cleanIp);
+            updatePinnedBar(cleanIp);
+            updateConversationAvailability(cleanIp);
         });
         if (connect) {
             chatController.connect(cleanIp);
@@ -836,12 +1209,30 @@ public class ChatUIApp extends Application implements IchatIU {
     }
 
     private void connectSelectedContact() {
-        String cleanIp = selectedContactIp == null ? "" : selectedContactIp.trim();
+        String cleanIp = resolveConnectTargetIp();
         if (cleanIp.isEmpty()) {
             addSystemMessage("Selecciona un contacto primero.");
             return;
         }
+        addSystemMessage("Conectando a " + cleanIp + "...");
         selectContact(cleanIp, true);
+    }
+
+    private String resolveConnectTargetIp() {
+        String cleanIp = selectedContactIp == null ? "" : selectedContactIp.trim();
+        if (!cleanIp.isEmpty()) {
+            return cleanIp;
+        }
+        String remoteIp = remoteIpValue == null || remoteIpValue.getText() == null
+                ? ""
+                : remoteIpValue.getText().trim();
+        if (!remoteIp.isEmpty() && contactItems.containsKey(remoteIp)) {
+            return remoteIp;
+        }
+        if (contactItems.size() == 1) {
+            return contactItems.keySet().iterator().next();
+        }
+        return "";
     }
 
     private void renderChatHistory(String contactIp) {
@@ -854,10 +1245,18 @@ public class ChatUIApp extends Application implements IchatIU {
             messages.getChildren().clear();
             sentMessageTicks.remove(cleanIp);
             messageRows.remove(cleanIp);
+            messageTexts.remove(cleanIp);
+            uniquePayloads.remove(cleanIp);
+            viewedUniqueMessages.remove(cleanIp);
+            uniquePlaceholders.remove(cleanIp);
+            Set<String> viewedSet = new HashSet<>();
             for (ChatMessage chatMessage : history) {
                 String senderLabel = chatMessage.getSenderLabel();
                 if (senderLabel == null || senderLabel.isBlank()) {
                     senderLabel = cleanIp;
+                }
+                if (chatMessage.isUniqueViewed() && chatMessage.getMessageId() != null) {
+                    viewedSet.add(chatMessage.getMessageId());
                 }
                 addChatBubbleNow(
                         cleanIp,
@@ -867,6 +1266,9 @@ public class ChatUIApp extends Application implements IchatIU {
                         senderLabel,
                         chatMessage.getMessageId()
                 );
+            }
+            if (!viewedSet.isEmpty()) {
+                viewedUniqueMessages.put(cleanIp, viewedSet);
             }
         });
     }
@@ -912,6 +1314,38 @@ public class ChatUIApp extends Application implements IchatIU {
             if (ticks != null) {
                 ticks.remove(messageId);
             }
+            Map<String, String> texts = messageTexts.get(contactIp);
+            if (texts != null) {
+                texts.remove(messageId);
+            }
+            Map<String, String> uniqueMap = uniquePayloads.get(contactIp);
+            if (uniqueMap != null) {
+                uniqueMap.remove(messageId);
+            }
+            Map<String, Label> placeholders = uniquePlaceholders.get(contactIp);
+            if (placeholders != null) {
+                placeholders.remove(messageId);
+            }
+            Set<String> viewed = viewedUniqueMessages.get(contactIp);
+            if (viewed != null) {
+                viewed.remove(messageId);
+            }
+        });
+    }
+
+    private void onMessagePinned(String contactIp, String messageId, boolean pinned) {
+        if (contactIp == null || contactIp.isBlank()) {
+            return;
+        }
+        Platform.runLater(() -> {
+            if (pinned) {
+                pinnedMessageByContact.put(contactIp, messageId);
+            } else {
+                pinnedMessageByContact.remove(contactIp);
+            }
+            if (contactIp.equals(selectedContactIp)) {
+                updatePinnedBar(contactIp);
+            }
         });
     }
 
@@ -929,6 +1363,12 @@ public class ChatUIApp extends Application implements IchatIU {
             return;
         }
         Platform.runLater(() -> {
+            long now = System.currentTimeMillis();
+            Long last = lastBuzzAt.get(contactIp);
+            if (last != null && now - last < BUZZ_MIN_INTERVAL_MS) {
+                return;
+            }
+            lastBuzzAt.put(contactIp, now);
             ContactStatusRenderer.ContactItemView itemView = contactItems.get(contactIp);
             if (itemView != null) {
                 contactRenderer.renderBuzz(itemView, true);
@@ -949,8 +1389,8 @@ public class ChatUIApp extends Application implements IchatIU {
         if (scrollPane == null) {
             return;
         }
-        if (buzzAnimation != null) {
-            buzzAnimation.stop();
+        if (buzzAnimation != null && buzzAnimation.getStatus() == Animation.Status.RUNNING) {
+            return;
         }
         scrollPane.setTranslateX(0);
         TranslateTransition transition = new TranslateTransition(Duration.millis(40), scrollPane);

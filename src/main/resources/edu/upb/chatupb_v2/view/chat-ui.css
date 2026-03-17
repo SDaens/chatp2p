@@ -127,6 +127,162 @@
     -fx-padding: 8 26 30 26;
 }
 
+.pinned-bar {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-border-color: rgba(255, 255, 255, 0.12);
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 10 18;
+    -fx-spacing: 10;
+}
+
+.pinned-title {
+    -fx-font-size: 10px;
+    -fx-text-fill: rgba(233, 243, 255, 0.55);
+    -fx-font-weight: 600;
+}
+
+.pinned-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: #e9f3ff;
+}
+
+.pinned-action {
+    -fx-background-color: rgba(255, 255, 255, 0.12);
+    -fx-text-fill: #e7f2ff;
+    -fx-background-radius: 10;
+    -fx-padding: 4 12;
+    -fx-font-size: 11px;
+}
+
+.offline-bar {
+    -fx-background-color: rgba(255, 77, 90, 0.18);
+    -fx-border-color: rgba(255, 77, 90, 0.4);
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 8 18;
+}
+
+.offline-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: #ffd6d9;
+    -fx-font-weight: 600;
+}
+
+.root.theme-sunset {
+    -fx-background-color: linear-gradient(to bottom right, #3a0f1c, #5b2a14);
+}
+
+.root.theme-sunset .header {
+    -fx-background-color: rgba(40, 12, 20, 0.75);
+}
+
+.root.theme-sunset .contacts-sidebar {
+    -fx-background-color: rgba(40, 12, 20, 0.55);
+}
+
+.root.theme-sunset .composer {
+    -fx-background-color: rgba(30, 10, 16, 0.7);
+}
+
+.root.theme-sunset .contact-item-active {
+    -fx-background-color: linear-gradient(to bottom right, #ff9a62, #ff6a3d);
+}
+
+.root.theme-sunset .bubble-self {
+    -fx-background-color: linear-gradient(to bottom right, #ff9a62, #ff6a3d);
+}
+
+.root.theme-sunset .primary-button {
+    -fx-background-color: #ffb36b;
+    -fx-text-fill: #2a0f0f;
+}
+
+.root.theme-forest {
+    -fx-background-color: linear-gradient(to bottom right, #0b2a1a, #14402a);
+}
+
+.root.theme-forest .header {
+    -fx-background-color: rgba(8, 24, 16, 0.75);
+}
+
+.root.theme-forest .contacts-sidebar {
+    -fx-background-color: rgba(8, 24, 16, 0.55);
+}
+
+.root.theme-forest .composer {
+    -fx-background-color: rgba(7, 20, 14, 0.7);
+}
+
+.root.theme-forest .contact-item-active {
+    -fx-background-color: linear-gradient(to bottom right, #34d399, #16a34a);
+}
+
+.root.theme-forest .bubble-self {
+    -fx-background-color: linear-gradient(to bottom right, #34d399, #16a34a);
+}
+
+.root.theme-forest .primary-button {
+    -fx-background-color: #86efac;
+    -fx-text-fill: #0b2216;
+}
+
+.root.theme-midnight {
+    -fx-background-color: linear-gradient(to bottom right, #0b0f1f, #14182c);
+}
+
+.root.theme-midnight .header {
+    -fx-background-color: rgba(8, 12, 24, 0.75);
+}
+
+.root.theme-midnight .contacts-sidebar {
+    -fx-background-color: rgba(8, 12, 24, 0.55);
+}
+
+.root.theme-midnight .composer {
+    -fx-background-color: rgba(6, 10, 20, 0.7);
+}
+
+.root.theme-midnight .contact-item-active {
+    -fx-background-color: linear-gradient(to bottom right, #7c3aed, #4f46e5);
+}
+
+.root.theme-midnight .bubble-self {
+    -fx-background-color: linear-gradient(to bottom right, #7c3aed, #4f46e5);
+}
+
+.root.theme-midnight .primary-button {
+    -fx-background-color: #c4b5fd;
+    -fx-text-fill: #120f26;
+}
+
+.root.theme-citrus {
+    -fx-background-color: linear-gradient(to bottom right, #142110, #2c3a0f);
+}
+
+.root.theme-citrus .header {
+    -fx-background-color: rgba(14, 22, 10, 0.75);
+}
+
+.root.theme-citrus .contacts-sidebar {
+    -fx-background-color: rgba(14, 22, 10, 0.55);
+}
+
+.root.theme-citrus .composer {
+    -fx-background-color: rgba(12, 18, 8, 0.7);
+}
+
+.root.theme-citrus .contact-item-active {
+    -fx-background-color: linear-gradient(to bottom right, #facc15, #84cc16);
+}
+
+.root.theme-citrus .bubble-self {
+    -fx-background-color: linear-gradient(to bottom right, #facc15, #84cc16);
+}
+
+.root.theme-citrus .primary-button {
+    -fx-background-color: #fde047;
+    -fx-text-fill: #1a1f0b;
+}
+
 .message-row {
     -fx-fill-width: true;
 }
@@ -142,6 +298,15 @@
 .message-text {
     -fx-font-size: 13.5px;
     -fx-text-fill: #eaf4ff;
+}
+
+.message-unique {
+    -fx-font-size: 13.5px;
+    -fx-text-fill: transparent;
+}
+
+.message-unique-viewed {
+    -fx-text-fill: rgba(234, 244, 255, 0.35);
 }
 
 .message-time {

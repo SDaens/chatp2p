@@ -30,6 +30,12 @@ public abstract class ChatSessionObserver {
     public void onBuzz(String contactIp) {
     }
 
+    public void onMessagePinned(String contactIp, String messageId, boolean pinned) {
+    }
+
+    public void onThemeChanged(String themeId, boolean remote) {
+    }
+
     public void onPresenceChanged(String contactIp, boolean online) {
     }
 }

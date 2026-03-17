@@ -9,6 +9,7 @@ public class ChatMessage implements Model {
     private boolean selfSent;
     private String senderLabel;
     private long sentAtMillis;
+    private boolean uniqueViewed;
 
     @Override
     public void setId(long id) {
@@ -66,5 +67,13 @@ public class ChatMessage implements Model {
 
     public void setSentAtMillis(long sentAtMillis) {
         this.sentAtMillis = sentAtMillis;
+    }
+
+    public boolean isUniqueViewed() {
+        return uniqueViewed;
+    }
+
+    public void setUniqueViewed(boolean uniqueViewed) {
+        this.uniqueViewed = uniqueViewed;
     }
 }
