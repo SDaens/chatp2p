@@ -14,4 +14,3 @@ public class ChatUPB_V2 {
         ChatUIApp.main(args);
     }
 }
-    

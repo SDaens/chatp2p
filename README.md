@@ -16,6 +16,26 @@ mvn javafx:run
 mvn clean package
 ```
 
+## Linux installers (.deb/.rpm) using system Java
+These packaging scripts do not bundle a runtime. The installer depends on the system Java and the launcher checks for `java`. If Java is missing, it prints a message and exits.
+
+Prerequisites:
+- JDK 21 (for building with Maven)
+- For `.deb`: `dpkg-deb` and `fakeroot`
+- For `.rpm`: `rpmbuild`
+
+Build `.deb`:
+```bash
+./scripts/package-linux-deb.sh
+```
+
+Build `.rpm`:
+```bash
+./scripts/package-linux-rpm.sh
+```
+
+Outputs are written to `dist/`.
+
 ## Architecture (UI Decoupling)
 The project uses a simple transport abstraction so the JavaFX UI is not directly coupled to sockets.
 

@@ -16,6 +16,7 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ChoiceDialog;
@@ -29,6 +30,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.image.PixelReader;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -44,6 +46,7 @@ import javafx.stage.Stage;
 import javafx.stage.Window;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -237,13 +240,15 @@ public class ChatUIApp extends Application implements IchatIU {
     }
 
     private VBox buildHeader() {
-        Label title = new Label("ChatUPB");
-        title.getStyleClass().add("title");
+        ImageView logoView = buildLogoView();
 
         statusValue = new Label("Sin conexión");
         statusValue.getStyleClass().add("subtitle");
 
-        VBox titleBox = new VBox(2, title, statusValue);
+        Region titleSpacer = new Region();
+        titleSpacer.getStyleClass().add("title-spacer");
+
+        VBox titleBox = new VBox(2, titleSpacer, statusValue);
         titleBox.getStyleClass().add("title-box");
 
         localIpValue = new Label(resolveLocalIp());
@@ -272,7 +277,82 @@ public class ChatUIApp extends Application implements IchatIU {
         HBox header = new HBox(16, titleBox, spacer, statusBox);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
-        return new VBox(header);
+        StackPane headerContainer = new StackPane(header);
+        if (logoView != null) {
+            logoView.setManaged(false);
+            StackPane.setAlignment(logoView, Pos.TOP_LEFT);
+            headerContainer.getChildren().add(logoView);
+        }
+        return new VBox(headerContainer);
+    }
+
+    private ImageView buildLogoView() {
+        ImageView logo = new ImageView();
+        logo.getStyleClass().add("app-logo");
+        logo.setFitHeight(120);
+        logo.setPreserveRatio(true);
+        logo.setSmooth(true);
+
+        try (InputStream stream = ChatUIApp.class.getResourceAsStream("/chatupb-logo.png")) {
+            if (stream == null) {
+                return null;
+            }
+            Image image = new Image(stream);
+            logo.setImage(image);
+            Rectangle2D bounds = computeOpaqueBounds(image);
+            if (bounds != null) {
+                logo.setViewport(bounds);
+            }
+        } catch (Exception ex) {
+            return null;
+        }
+
+        return logo;
+    }
+
+    private Rectangle2D computeOpaqueBounds(Image image) {
+        if (image == null) {
+            return null;
+        }
+
+        PixelReader reader = image.getPixelReader();
+        if (reader == null) {
+            return null;
+        }
+
+        int width = (int) Math.round(image.getWidth());
+        int height = (int) Math.round(image.getHeight());
+        int minX = width;
+        int minY = height;
+        int maxX = -1;
+        int maxY = -1;
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int argb = reader.getArgb(x, y);
+                int alpha = (argb >>> 24) & 0xff;
+                if (alpha > 0) {
+                    if (x < minX) {
+                        minX = x;
+                    }
+                    if (y < minY) {
+                        minY = y;
+                    }
+                    if (x > maxX) {
+                        maxX = x;
+                    }
+                    if (y > maxY) {
+                        maxY = y;
+                    }
+                }
+            }
+        }
+
+        if (maxX < 0 || maxY < 0) {
+            return new Rectangle2D(0, 0, width, height);
+        }
+
+        return new Rectangle2D(minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
     private HBox buildMetaRow(String label, Label valueNode) {
@@ -1101,7 +1181,7 @@ public class ChatUIApp extends Application implements IchatIU {
 
     private Map<String, String> themeOptions() {
         Map<String, String> options = new LinkedHashMap<>();
-        options.put("default", "Azul");
+        options.put("default", "Turquesa");
         options.put("sunset", "Naranja");
         options.put("forest", "Verde");
         options.put("midnight", "Morado");

@@ -1,52 +1,67 @@
 .root {
     -fx-font-family: "IBM Plex Sans", "Noto Sans", "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
-    -fx-background-color: linear-gradient(to bottom right, #0f1d2c, #1a2e3d);
+    -fx-background-color: #f6f7fb;
 }
 
 .header {
     -fx-padding: 22 26 18 26;
-    -fx-background-color: rgba(10, 20, 30, 0.75);
-    -fx-border-color: rgba(255, 255, 255, 0.05);
+    -fx-background-color: rgba(255, 255, 255, 0.98);
+    -fx-border-color: rgba(15, 23, 42, 0.08);
     -fx-border-width: 0 0 1 0;
 }
 
 .title {
     -fx-font-size: 22px;
     -fx-font-weight: 700;
-    -fx-text-fill: #e9f3ff;
+    -fx-text-fill: #0f172a;
+}
+
+.app-logo {
+    -fx-opacity: 0.9;
+    -fx-translate-x: -30;
+    -fx-translate-y: -8;
+}
+
+.title-spacer {
+    -fx-min-height: 40;
+    -fx-pref-height: 52;
+}
+
+.title-box {
+    -fx-translate-x: -8;
 }
 
 .subtitle {
     -fx-font-size: 13px;
-    -fx-text-fill: rgba(233, 243, 255, 0.7);
+    -fx-text-fill: rgba(15, 23, 42, 0.65);
 }
 
 .status-box {
     -fx-padding: 6 12;
-    -fx-background-color: rgba(255, 255, 255, 0.04);
+    -fx-background-color: rgba(15, 23, 42, 0.05);
     -fx-background-radius: 12;
 }
 
 .meta-key {
     -fx-font-size: 11px;
-    -fx-text-fill: rgba(233, 243, 255, 0.55);
+    -fx-text-fill: rgba(15, 23, 42, 0.55);
 }
 
 .meta-value {
     -fx-font-size: 12px;
-    -fx-text-fill: #d7e8ff;
+    -fx-text-fill: #0f172a;
 }
 
 .contacts-sidebar {
-    -fx-background-color: rgba(10, 20, 30, 0.55);
-    -fx-border-color: rgba(255, 255, 255, 0.05);
+    -fx-background-color: rgba(255, 255, 255, 0.9);
+    -fx-border-color: rgba(15, 23, 42, 0.08);
     -fx-border-width: 0 0 0 1;
 }
 
 .contacts-title {
     -fx-font-size: 15px;
     -fx-font-weight: 700;
-    -fx-text-fill: #e9f3ff;
+    -fx-text-fill: #0f172a;
 }
 
 .contacts-scroll {
@@ -64,7 +79,7 @@
 }
 
 .contact-item {
-    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-color: rgba(15, 23, 42, 0.05);
     -fx-alignment: center-left;
     -fx-background-radius: 8;
     -fx-padding: 5 8;
@@ -75,7 +90,7 @@
 }
 
 .contact-item-active {
-    -fx-background-color: linear-gradient(to bottom right, #4ea1ff, #356bff);
+    -fx-background-color: #2dd4bf;
 }
 
 .contact-item-graphic {
@@ -83,17 +98,17 @@
 }
 
 .contact-item-label {
-    -fx-text-fill: #e7f2ff;
+    -fx-text-fill: #0f172a;
     -fx-font-size: 12px;
 }
 
 .contact-item-active .contact-item-label {
-    -fx-text-fill: #f5fbff;
+    -fx-text-fill: #0f172a;
 }
 
 .contact-buzz-icon {
     -fx-font-size: 12px;
-    -fx-text-fill: #ffdd7a;
+    -fx-text-fill: #2dd4bf;
 }
 
 .contact-status-dot {
@@ -120,16 +135,17 @@
 }
 
 .message-scroll .viewport {
-    -fx-background-color: transparent;
+    -fx-background-color: #f6f7fb;
 }
 
 .messages {
     -fx-padding: 8 26 30 26;
+    -fx-background-color: #f6f7fb;
 }
 
 .pinned-bar {
-    -fx-background-color: rgba(255, 255, 255, 0.08);
-    -fx-border-color: rgba(255, 255, 255, 0.12);
+    -fx-background-color: rgba(15, 23, 42, 0.05);
+    -fx-border-color: rgba(15, 23, 42, 0.08);
     -fx-border-width: 0 0 1 0;
     -fx-padding: 10 18;
     -fx-spacing: 10;
@@ -137,18 +153,18 @@
 
 .pinned-title {
     -fx-font-size: 10px;
-    -fx-text-fill: rgba(233, 243, 255, 0.55);
+    -fx-text-fill: rgba(15, 23, 42, 0.55);
     -fx-font-weight: 600;
 }
 
 .pinned-text {
     -fx-font-size: 12px;
-    -fx-text-fill: #e9f3ff;
+    -fx-text-fill: #0f172a;
 }
 
 .pinned-action {
-    -fx-background-color: rgba(255, 255, 255, 0.12);
-    -fx-text-fill: #e7f2ff;
+    -fx-background-color: rgba(15, 23, 42, 0.08);
+    -fx-text-fill: #0f172a;
     -fx-background-radius: 10;
     -fx-padding: 4 12;
     -fx-font-size: 11px;
@@ -297,7 +313,15 @@
 
 .message-text {
     -fx-font-size: 13.5px;
-    -fx-text-fill: #eaf4ff;
+    -fx-text-fill: #0f172a;
+}
+
+.message-row-peer .message-text {
+    -fx-text-fill: #0f172a;
+}
+
+.message-row-self .message-text {
+    -fx-text-fill: #f8fafc;
 }
 
 .message-unique {
@@ -306,28 +330,28 @@
 }
 
 .message-unique-viewed {
-    -fx-text-fill: rgba(234, 244, 255, 0.35);
+    -fx-text-fill: rgba(15, 23, 42, 0.35);
 }
 
 .message-time {
     -fx-font-size: 10px;
-    -fx-text-fill: rgba(234, 244, 255, 0.55);
+    -fx-text-fill: rgba(15, 23, 42, 0.55);
 }
 
 .message-tick {
     -fx-font-size: 10px;
-    -fx-text-fill: rgba(234, 244, 255, 0.75);
+    -fx-text-fill: rgba(15, 23, 42, 0.6);
 }
 
 .message-menu {
     -fx-background-color: transparent;
-    -fx-text-fill: rgba(234, 244, 255, 0.75);
+    -fx-text-fill: rgba(15, 23, 42, 0.6);
     -fx-font-size: 11px;
     -fx-padding: 0 2;
 }
 
 .message-menu:hover {
-    -fx-text-fill: #ffffff;
+    -fx-text-fill: #0f172a;
 }
 
 .chat-avatar {
@@ -340,27 +364,27 @@
 }
 
 .chat-avatar-self {
-    -fx-background-color: linear-gradient(to bottom right, #8cffc3, #4ea1ff);
+    -fx-background-color: #2dd4bf;
 }
 
 .chat-avatar-peer {
-    -fx-background-color: rgba(255, 255, 255, 0.2);
+    -fx-background-color: rgba(15, 23, 42, 0.08);
 }
 
 .chat-avatar-text {
     -fx-font-size: 11px;
     -fx-font-weight: 700;
-    -fx-text-fill: #0f1d2c;
+    -fx-text-fill: #0f172a;
 }
 
 .bubble-peer {
-    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-color: #eef1f5;
     -fx-background-radius: 16;
     -fx-padding: 12 14;
 }
 
 .bubble-self {
-    -fx-background-color: linear-gradient(to bottom right, #4ea1ff, #356bff);
+    -fx-background-color: #2dd4bf;
     -fx-background-radius: 16;
     -fx-padding: 12 14;
 }
@@ -370,39 +394,39 @@
 }
 
 .image-placeholder {
-    -fx-background-color: rgba(255, 255, 255, 0.18);
+    -fx-background-color: rgba(15, 23, 42, 0.06);
     -fx-background-radius: 14;
-    -fx-border-color: rgba(255, 255, 255, 0.25);
+    -fx-border-color: rgba(15, 23, 42, 0.12);
     -fx-border-radius: 14;
     -fx-border-width: 1;
 }
 
 .image-label {
-    -fx-text-fill: rgba(15, 29, 44, 0.7);
+    -fx-text-fill: rgba(15, 23, 42, 0.7);
     -fx-font-weight: 600;
 }
 
 .composer {
-    -fx-background-color: rgba(7, 13, 20, 0.7);
-    -fx-border-color: rgba(255, 255, 255, 0.06);
+    -fx-background-color: rgba(255, 255, 255, 0.98);
+    -fx-border-color: rgba(15, 23, 42, 0.08);
     -fx-border-width: 1 0 0 0;
 }
 
 .composer-hint {
     -fx-font-size: 12px;
-    -fx-text-fill: rgba(233, 243, 255, 0.55);
+    -fx-text-fill: rgba(15, 23, 42, 0.55);
 }
 
 .composer-input {
-    -fx-background-color: rgba(7, 13, 20, 0.7);
+    -fx-background-color: #ffffff;
     -fx-background-radius: 12;
-    -fx-text-fill: #eef6ff;
-    -fx-text-inner-color: #eef6ff;
-    -fx-prompt-text-fill: rgba(233, 243, 255, 0.5);
-    -fx-control-inner-background: rgba(7, 13, 20, 0.7);
-    -fx-highlight-fill: rgba(78, 161, 255, 0.5);
-    -fx-highlight-text-fill: #0d1a24;
-    -fx-border-color: rgba(255, 255, 255, 0.1);
+    -fx-text-fill: #0f172a;
+    -fx-text-inner-color: #0f172a;
+    -fx-prompt-text-fill: rgba(15, 23, 42, 0.45);
+    -fx-control-inner-background: #ffffff;
+    -fx-highlight-fill: rgba(45, 212, 191, 0.55);
+    -fx-highlight-text-fill: #0f172a;
+    -fx-border-color: rgba(15, 23, 42, 0.12);
     -fx-border-radius: 12;
     -fx-border-width: 1;
     -fx-background-insets: 0;
@@ -415,19 +439,19 @@
 }
 
 .text-area.composer-input .content {
-    -fx-background-color: rgba(7, 13, 20, 0.7);
+    -fx-background-color: #ffffff;
     -fx-background-radius: 12;
     -fx-padding: 10 12;
 }
 
 .text-area.composer-input .viewport {
-    -fx-background-color: rgba(7, 13, 20, 0.7);
+    -fx-background-color: #ffffff;
     -fx-background-radius: 12;
 }
 
 .text-area.composer-input .text,
 .text-field.composer-input .text {
-    -fx-fill: #eef6ff;
+    -fx-fill: #0f172a;
 }
 
 .system-row {
@@ -435,35 +459,35 @@
 }
 
 .bubble-system {
-    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-color: rgba(15, 23, 42, 0.06);
     -fx-background-radius: 12;
     -fx-padding: 8 12;
 }
 
 .system-text {
     -fx-font-size: 12px;
-    -fx-text-fill: rgba(233, 243, 255, 0.75);
+    -fx-text-fill: rgba(15, 23, 42, 0.6);
     -fx-alignment: center;
 }
 
 .primary-button {
-    -fx-background-color: #8cffc3;
-    -fx-text-fill: #0c1a24;
+    -fx-background-color: #2dd4bf;
+    -fx-text-fill: #0f172a;
     -fx-font-weight: 600;
     -fx-background-radius: 12;
     -fx-padding: 8 18;
 }
 
 .secondary-button {
-    -fx-background-color: rgba(255, 255, 255, 0.12);
-    -fx-text-fill: #e7f2ff;
+    -fx-background-color: rgba(15, 23, 42, 0.06);
+    -fx-text-fill: #0f172a;
     -fx-background-radius: 12;
     -fx-padding: 8 14;
 }
 
 .contact-connect-button {
-    -fx-background-color: rgba(140, 255, 195, 0.16);
-    -fx-text-fill: #d8ffec;
+    -fx-background-color: rgba(45, 212, 191, 0.25);
+    -fx-text-fill: #0f172a;
     -fx-font-size: 12px;
     -fx-padding: 6 10;
 }
@@ -473,6 +497,6 @@
 }
 
 .scroll-bar:vertical .thumb {
-    -fx-background-color: rgba(255, 255, 255, 0.18);
+    -fx-background-color: rgba(15, 23, 42, 0.2);
     -fx-background-radius: 999;
 }
