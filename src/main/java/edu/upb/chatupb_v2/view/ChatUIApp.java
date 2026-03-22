@@ -852,7 +852,7 @@ public class ChatUIApp extends Application implements IchatIU {
     private void setPendingState(String remoteIp, String message) {
         Platform.runLater(() -> {
             remoteIpValue.setText(remoteIp == null || remoteIp.isBlank() ? "-" : remoteIp);
-            statusValue.setText("Pendiente");
+            statusValue.setText("Conectado");
             markActiveContact(remoteIp);
             addSystemMessage(message);
         });

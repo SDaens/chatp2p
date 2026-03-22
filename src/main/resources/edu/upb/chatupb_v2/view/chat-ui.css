@@ -195,8 +195,56 @@
     -fx-background-color: rgba(40, 12, 20, 0.55);
 }
 
+.root.theme-sunset .subtitle {
+    -fx-text-fill: rgba(251, 233, 223, 0.75);
+}
+
+.root.theme-sunset .contacts-title,
+.root.theme-sunset .contact-item-label {
+    -fx-text-fill: #fbe9df;
+}
+
+.root.theme-sunset .contact-item {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+}
+
 .root.theme-sunset .composer {
     -fx-background-color: rgba(30, 10, 16, 0.7);
+}
+
+.root.theme-sunset .composer-hint {
+    -fx-text-fill: rgba(251, 233, 223, 0.7);
+}
+
+.root.theme-sunset .composer-input {
+    -fx-background-color: rgba(26, 9, 13, 0.85);
+    -fx-text-fill: #fbe9df;
+    -fx-text-inner-color: #fbe9df;
+    -fx-prompt-text-fill: rgba(251, 233, 223, 0.55);
+    -fx-control-inner-background: rgba(26, 9, 13, 0.85);
+    -fx-border-color: rgba(255, 154, 98, 0.35);
+}
+
+.root.theme-sunset .text-area.composer-input .content,
+.root.theme-sunset .text-area.composer-input .viewport {
+    -fx-background-color: rgba(26, 9, 13, 0.85);
+}
+
+.root.theme-sunset .message-scroll .viewport,
+.root.theme-sunset .messages {
+    -fx-background-color: rgba(22, 8, 12, 0.6);
+}
+
+.root.theme-sunset .bubble-system {
+    -fx-background-color: rgba(255, 255, 255, 0.1);
+}
+
+.root.theme-sunset .system-text,
+.root.theme-sunset .message-time,
+.root.theme-sunset .message-tick,
+.root.theme-sunset .message-menu,
+.root.theme-sunset .message-unique-viewed {
+    -fx-text-fill: rgba(251, 233, 223, 0.7);
 }
 
 .root.theme-sunset .contact-item-active {
@@ -212,6 +260,11 @@
     -fx-text-fill: #2a0f0f;
 }
 
+.root.theme-sunset .secondary-button {
+    -fx-background-color: rgba(255, 179, 107, 0.22);
+    -fx-text-fill: #ffe6d5;
+}
+
 .root.theme-forest {
     -fx-background-color: linear-gradient(to bottom right, #0b2a1a, #14402a);
 }
@@ -224,8 +277,56 @@
     -fx-background-color: rgba(8, 24, 16, 0.55);
 }
 
+.root.theme-forest .subtitle {
+    -fx-text-fill: rgba(230, 247, 238, 0.75);
+}
+
+.root.theme-forest .contacts-title,
+.root.theme-forest .contact-item-label {
+    -fx-text-fill: #e6f7ee;
+}
+
+.root.theme-forest .contact-item {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+}
+
 .root.theme-forest .composer {
     -fx-background-color: rgba(7, 20, 14, 0.7);
+}
+
+.root.theme-forest .composer-hint {
+    -fx-text-fill: rgba(230, 247, 238, 0.7);
+}
+
+.root.theme-forest .composer-input {
+    -fx-background-color: rgba(6, 16, 11, 0.85);
+    -fx-text-fill: #e6f7ee;
+    -fx-text-inner-color: #e6f7ee;
+    -fx-prompt-text-fill: rgba(230, 247, 238, 0.55);
+    -fx-control-inner-background: rgba(6, 16, 11, 0.85);
+    -fx-border-color: rgba(52, 211, 153, 0.35);
+}
+
+.root.theme-forest .text-area.composer-input .content,
+.root.theme-forest .text-area.composer-input .viewport {
+    -fx-background-color: rgba(6, 16, 11, 0.85);
+}
+
+.root.theme-forest .message-scroll .viewport,
+.root.theme-forest .messages {
+    -fx-background-color: rgba(6, 14, 10, 0.6);
+}
+
+.root.theme-forest .bubble-system {
+    -fx-background-color: rgba(255, 255, 255, 0.1);
+}
+
+.root.theme-forest .system-text,
+.root.theme-forest .message-time,
+.root.theme-forest .message-tick,
+.root.theme-forest .message-menu,
+.root.theme-forest .message-unique-viewed {
+    -fx-text-fill: rgba(230, 247, 238, 0.7);
 }
 
 .root.theme-forest .contact-item-active {
@@ -241,6 +342,11 @@
     -fx-text-fill: #0b2216;
 }
 
+.root.theme-forest .secondary-button {
+    -fx-background-color: rgba(134, 239, 172, 0.22);
+    -fx-text-fill: #eafff1;
+}
+
 .root.theme-midnight {
     -fx-background-color: linear-gradient(to bottom right, #0b0f1f, #14182c);
 }
@@ -253,8 +359,56 @@
     -fx-background-color: rgba(8, 12, 24, 0.55);
 }
 
+.root.theme-midnight .subtitle {
+    -fx-text-fill: rgba(233, 236, 255, 0.75);
+}
+
+.root.theme-midnight .contacts-title,
+.root.theme-midnight .contact-item-label {
+    -fx-text-fill: #e9ecff;
+}
+
+.root.theme-midnight .contact-item {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+}
+
 .root.theme-midnight .composer {
     -fx-background-color: rgba(6, 10, 20, 0.7);
+}
+
+.root.theme-midnight .composer-hint {
+    -fx-text-fill: rgba(233, 236, 255, 0.7);
+}
+
+.root.theme-midnight .composer-input {
+    -fx-background-color: rgba(8, 12, 24, 0.9);
+    -fx-text-fill: #e9ecff;
+    -fx-text-inner-color: #e9ecff;
+    -fx-prompt-text-fill: rgba(233, 236, 255, 0.55);
+    -fx-control-inner-background: rgba(8, 12, 24, 0.9);
+    -fx-border-color: rgba(124, 58, 237, 0.35);
+}
+
+.root.theme-midnight .text-area.composer-input .content,
+.root.theme-midnight .text-area.composer-input .viewport {
+    -fx-background-color: rgba(8, 12, 24, 0.9);
+}
+
+.root.theme-midnight .message-scroll .viewport,
+.root.theme-midnight .messages {
+    -fx-background-color: rgba(8, 10, 20, 0.6);
+}
+
+.root.theme-midnight .bubble-system {
+    -fx-background-color: rgba(255, 255, 255, 0.1);
+}
+
+.root.theme-midnight .system-text,
+.root.theme-midnight .message-time,
+.root.theme-midnight .message-tick,
+.root.theme-midnight .message-menu,
+.root.theme-midnight .message-unique-viewed {
+    -fx-text-fill: rgba(233, 236, 255, 0.7);
 }
 
 .root.theme-midnight .contact-item-active {
@@ -270,6 +424,11 @@
     -fx-text-fill: #120f26;
 }
 
+.root.theme-midnight .secondary-button {
+    -fx-background-color: rgba(196, 181, 253, 0.2);
+    -fx-text-fill: #e9e2ff;
+}
+
 .root.theme-citrus {
     -fx-background-color: linear-gradient(to bottom right, #142110, #2c3a0f);
 }
@@ -282,8 +441,56 @@
     -fx-background-color: rgba(14, 22, 10, 0.55);
 }
 
+.root.theme-citrus .subtitle {
+    -fx-text-fill: rgba(247, 248, 230, 0.75);
+}
+
+.root.theme-citrus .contacts-title,
+.root.theme-citrus .contact-item-label {
+    -fx-text-fill: #f7f8e6;
+}
+
+.root.theme-citrus .contact-item {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+}
+
 .root.theme-citrus .composer {
     -fx-background-color: rgba(12, 18, 8, 0.7);
+}
+
+.root.theme-citrus .composer-hint {
+    -fx-text-fill: rgba(247, 248, 230, 0.7);
+}
+
+.root.theme-citrus .composer-input {
+    -fx-background-color: rgba(12, 18, 8, 0.88);
+    -fx-text-fill: #f7f8e6;
+    -fx-text-inner-color: #f7f8e6;
+    -fx-prompt-text-fill: rgba(247, 248, 230, 0.55);
+    -fx-control-inner-background: rgba(12, 18, 8, 0.88);
+    -fx-border-color: rgba(250, 204, 21, 0.35);
+}
+
+.root.theme-citrus .text-area.composer-input .content,
+.root.theme-citrus .text-area.composer-input .viewport {
+    -fx-background-color: rgba(12, 18, 8, 0.88);
+}
+
+.root.theme-citrus .message-scroll .viewport,
+.root.theme-citrus .messages {
+    -fx-background-color: rgba(10, 16, 8, 0.6);
+}
+
+.root.theme-citrus .bubble-system {
+    -fx-background-color: rgba(255, 255, 255, 0.1);
+}
+
+.root.theme-citrus .system-text,
+.root.theme-citrus .message-time,
+.root.theme-citrus .message-tick,
+.root.theme-citrus .message-menu,
+.root.theme-citrus .message-unique-viewed {
+    -fx-text-fill: rgba(247, 248, 230, 0.7);
 }
 
 .root.theme-citrus .contact-item-active {
@@ -297,6 +504,11 @@
 .root.theme-citrus .primary-button {
     -fx-background-color: #fde047;
     -fx-text-fill: #1a1f0b;
+}
+
+.root.theme-citrus .secondary-button {
+    -fx-background-color: rgba(253, 224, 71, 0.22);
+    -fx-text-fill: #fff7c7;
 }
 
 .message-row {

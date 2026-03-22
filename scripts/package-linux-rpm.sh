@@ -6,7 +6,8 @@ ICON_PATH="src/main/resources/chatupb-logo.png"
 MAIN_CLASS="edu.upb.chatupb_v2.ChatUPB_V2"
 
 mvn -q -DskipTests package
-mvn -q -DskipTests dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target/lib
+mvn -q -DskipTests org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy-dependencies \
+  -DincludeScope=runtime -DoutputDirectory=target/lib
 
 RAW_VERSION="$(mvn -q -DforceStdout -Dexpression=project.version help:evaluate)"
 APP_VERSION="$(printf '%s' "${RAW_VERSION}" | sed 's/-SNAPSHOT//')"
@@ -22,6 +23,7 @@ mkdir -p "${RPM_TOP}/"{BUILD,RPMS,SOURCES,SPECS,SRPMS} "${APP_ROOT}/lib"
 install -Dm644 "target/${JAR_NAME}" "${APP_ROOT}/lib/${JAR_NAME}"
 install -Dm644 target/lib/*.jar "${APP_ROOT}/lib/"
 install -Dm644 "${ICON_PATH}" "${RPM_BUILDROOT}/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
+mkdir -p "${RPM_BUILDROOT}/usr/share/applications"
 
 cat > "${APP_ROOT}/${APP_NAME}" <<'EOF'
 #!/usr/bin/env bash
